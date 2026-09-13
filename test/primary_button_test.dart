@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forma/design_system/components/primary_button.dart';
@@ -33,7 +35,12 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
+  // Goldens are rasterized per-platform (font antialiasing differs);
+  // they are generated and compared on Windows, the dev workstation.
   testWidgets('golden light', (tester) async {
+    if (!Platform.isWindows) {
+      return;
+    }
     await tester.pumpWidget(
       _wrap(PrimaryButton(label: 'Start Scan', onPressed: () {})),
     );
@@ -44,6 +51,9 @@ void main() {
   });
 
   testWidgets('golden dark', (tester) async {
+    if (!Platform.isWindows) {
+      return;
+    }
     await tester.pumpWidget(
       _wrap(
         PrimaryButton(label: 'Start Scan', onPressed: () {}),
