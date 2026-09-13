@@ -85,10 +85,13 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
 - `MissingPluginException` → `UnsupportedDeviceError` (honest non-iOS path).
 
 ## Current Sprint
-Phase 1 — Native Module: code complete (Dart + Swift + tests + windows
-target). Remaining: commit → GitHub repo → CI macOS build (first Swift
-compile — expect iterations) → unsigned IPA artifact → Sideloadly install
-on iPhone 16 Pro Max → verify isScanSupported==true.
+Phase 1 — COMPLETE (2026-09-14): CI fully green on main
+(lucifer2711-1/forma). Linux: analyze + 24 tests. macOS (Xcode 15.4,
+iOS 17.5 SDK): Swift NativeModule compiles, unsigned app builds,
+`forma-unsigned-ipa` artifact packaged (Sideloadly-ready).
+Remaining for Phase 1 exit: install on iPhone 16 Pro Max via
+Sideloadly → verify `isScanSupported` == true → capture session opens.
+Then Phase 2: capture screen with ObjectCaptureView platform view.
 
 ## Open Questions
 - [ ] apple_spatial_capture vs custom Swift module → kept custom; revisit if
@@ -110,4 +113,5 @@ on iPhone 16 Pro Max → verify isScanSupported==true.
 | Session | Date | What was done | What's next |
 |---------|------|---------------|-------------|
 | 1 | 2026-09-13 | Phase 0: scaffolding, tokens, components, drift schema, library UI, CI files | Phase 1 |
-| 2 | 2026-09-14 | Phase 1: real IosNativeBridge only, Swift NativeModule (8 files), Podfile, Info.plist camera, pbxproj registration, unsupported screen, capture screen, 23 tests green, analyze clean, windows target + smoke-run, MASTER_PROMPT.md | Commit, GitHub, CI macOS build, device test |
+| 2 | 2026-09-14 | Phase 1: real IosNativeBridge only, Swift NativeModule (8 files), Info.plist camera, pbxproj registration, unsupported screen, capture screen, windows target + smoke-run, MASTER_PROMPT.md | Commit, GitHub, CI macOS build, device test |
+| 3 | 2026-09-14 | GitHub repo created (public), CI green: 24 tests (Linux) + unsigned IPA (macOS, Sideloadly-ready artifact). API verified via Apple docs + SDK probe. beginCapturing added to bridge contract | Sideloadly device install on iPhone 16 Pro Max; then Phase 2 |

@@ -23,7 +23,7 @@
 - [x] Unit tests (bridge contract via binary-messenger mocks, view model,
       unsupported screen, library navigation) — 23 green, analyze clean
 - [x] windows/ dev platform + smoke-run
-- [ ] First CI macOS build (first Swift compile — no local Mac)
+- [x] First CI macOS build (first Swift compile — no local Mac) — GREEN
 - [ ] Install on iPhone 16 Pro Max via Sideloadly; verify
       `isScanSupported` == true and capture session opens
       (Phase 1 exit criteria)
