@@ -1,0 +1,15 @@
+﻿# Forma uses Very Good Analysis - a strict, opinionated lint set.
+include: package:very_good_analysis/analysis_options.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - ios/**
+    - lib/**/*.g.dart
+    - lib/**/*.freezed.dart
+
+linter:
+  rules:
+    public_member_api_docs: false
+    unnecessary_type_name_in_constructor: false
+    sort_pub_dependencies: false

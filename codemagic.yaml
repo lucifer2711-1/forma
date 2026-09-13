@@ -1,0 +1,35 @@
+# Forma — Codemagic CI/CD (fallback after GitHub Actions)
+#
+# GitHub Actions (public repo) covers analyze/test + unsigned iOS builds.
+# Use Codemagic when you need code signing + TestFlight upload.
+# Setup: https://docs.codemagic.io/yaml/yaml-getting-started/
+workflows:
+  ios-testflight:
+    name: iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic_api_key
+    environment:
+      flutter: stable
+      xcode: latest
+      vars:
+        BUNDLE_ID: com.forma.app
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Run tests
+        script: flutter test
+      - name: Build signed IPA
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=$CM_EXPORT_OPTIONS_PATH || \
+            flutter build ipa --release
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - forma-testers
