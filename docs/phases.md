@@ -11,16 +11,22 @@
 - [x] `codemagic.yaml` fallback
 - Exit: analyze clean ✅, 11 tests green ✅
 
-## Phase 1 — Native Module (Weeks 2–3)
-- [ ] `ios/Runner/NativeModule/` Swift package-in-target:
+## Phase 1 — Native Module (Weeks 2–3) ✅ CODE COMPLETE
+- [x] `ios/Runner/NativeModule/` Swift package-in-target:
       FormaChannelHandler, CaptureService, ReconstructionService,
-      ExportService (stub), CapabilityChecker
-- [ ] Dart `IosNativeBridge` (MethodChannel/EventChannel) implementing NativeBridge
-- [ ] `isScanSupported` gating + unsupported-device explainer screen
-- [ ] Camera permission pre-prompt + Info.plist strings
-- [ ] Unit tests (Dart side, bridge contract) + XCTest stubs
-- [ ] First CI build on real device via TestFlight (Codemagic) — Go/No-Go:
-      evaluate native capture UX vs design.md §4.4 (custom guidance ring or not)
+      ExportService (stub), CapabilityChecker, FormaError, FormaEventSink,
+      FormaStorage — registered in pbxproj
+- [x] Dart `IosNativeBridge` (MethodChannel/EventChannel) implementing
+      NativeBridge — the ONLY implementation (fakes purged per user directive)
+- [x] `isScanSupported` gating + unsupported-device explainer screen
+- [x] Camera permission + Info.plist strings; ios/Podfile created (was missing)
+- [x] Unit tests (bridge contract via binary-messenger mocks, view model,
+      unsupported screen, library navigation) — 23 green, analyze clean
+- [x] windows/ dev platform + smoke-run
+- [ ] First CI macOS build (first Swift compile — no local Mac)
+- [ ] Install on iPhone 16 Pro Max via Sideloadly; verify
+      `isScanSupported` == true and capture session opens
+      (Phase 1 exit criteria)
 
 ## Phase 2 — Capture UI (Week 4)
 - [ ] `ScanCaptureScreen`: native preview (UiKitView) OR plugin UI

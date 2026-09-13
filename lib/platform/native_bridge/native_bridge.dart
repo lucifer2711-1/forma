@@ -1,14 +1,12 @@
 import 'package:forma/platform/native_bridge/capture_state.dart';
-import 'package:forma/platform/native_bridge/fake_native_bridge.dart' show FakeNativeBridge;
 
 /// The single seam between the Flutter UI and native iOS (Swift).
 ///
 /// All communication with `ObjectCaptureSession`, `PhotogrammetrySession`,
 /// and Model I/O export flows through this interface. The UI and view models
 /// must never import platform channels directly — they depend on this
-/// contract, so the implementation can be swapped between:
-/// - [FakeNativeBridge] — local development, tests, and UI previews
-/// - a platform-channel bridge to our Swift `NativeModule` (Phase 1)
+/// contract. The sole implementation is `IosNativeBridge`, backed by the
+/// Swift `NativeModule` via `com.forma.app/*` channels.
 ///
 /// See architecture.md §3 for the full channel contract.
 abstract interface class NativeBridge {

@@ -26,9 +26,15 @@ abstract final class Motion {
   /// Micro feedback (scale-on-press, icon toggles).
   static const Duration micro = Duration(milliseconds: 150);
 
+  /// Slow ambient pulse loop (FAB, capture CTA, static icons).
+  static const Duration pulse = Duration(milliseconds: 1200);
+
   /// Standard curve for most animations.
   static const Curve curve = Curves.easeOutCubic;
 
   /// Overshooting curve for celebratory moments.
   static const Curve curveBouncy = Curves.easeOutBack;
+
+  /// Ease-in-out for ambient pulse loops.
+  static const Curve curvePulse = Curves.easeInOut;
 }

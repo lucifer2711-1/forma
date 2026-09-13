@@ -1,7 +1,7 @@
 name: iOS Build
 
 # Public repo => unlimited free macOS minutes. Only build iOS on main and
-# release tags — PRs run the cheap Linux CI instead (codemagic.md §6).
+# release tags — PRs run the cheap Linux CI instead (cicd.md §6).
 on:
   push:
     branches: [main]
@@ -34,9 +34,24 @@ jobs:
       - name: Build iOS (unsigned)
         run: flutter build ios --release --no-codesign
 
-      - name: Upload build
+      # Package as an IPA layout so Sideloadly can resign + install it.
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/Runner.app
+          cd build/ipa
+          zip -qry forma-unsigned.ipa Payload
+
+      - name: Upload unsigned .app
         uses: actions/upload-artifact@v4
         with:
           name: forma-ios-build
           path: build/ios/iphoneos
+          retention-days: 14
+
+      - name: Upload Sideloadly-ready IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: forma-unsigned-ipa
+          path: build/ipa/forma-unsigned.ipa
           retention-days: 14

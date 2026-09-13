@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:forma/core/models/scan.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/design_system/components/empty_state.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
+import 'package:forma/features/capture/capture_screen.dart';
 import 'package:forma/features/library/widgets/scan_card.dart';
+import 'package:forma/features/unsupported_device/unsupported_device_screen.dart';
 
 /// Home screen: the scan library grid (design.md §4.3).
 class LibraryScreen extends ConsumerWidget {
@@ -65,19 +66,15 @@ class LibraryScreen extends ConsumerWidget {
   }
 
   Future<void> _startScan(BuildContext context, WidgetRef ref) async {
-    final bridge = ref.read(nativeBridgeProvider);
-    final repository = ref.read(scanRepositoryProvider);
-    final id = await bridge.startCapture();
-    await bridge.finishCapture(id);
-    await bridge.startReconstruction(id);
-    await repository.save(
-      Scan(
-        id: id,
-        name: 'Scan ${DateTime.now().hour}:${DateTime.now().minute}',
-        createdAt: DateTime.now(),
-        status: ScanStatus.ready,
-        modelPath: '/fake/scans/$id/model.usdz',
-        bytes: 1_204_000,
+    final supported = await ref.read(scanSupportProvider.future);
+    if (!context.mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => supported
+            ? const CaptureScreen()
+            : const UnsupportedDeviceScreen(),
       ),
     );
   }
