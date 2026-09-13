@@ -48,6 +48,17 @@ void main() {
     await expectLater(bridge.startCapture(), throwsA(isA<CaptureError>()));
   });
 
+  test('beginCapturing forwards the scan id to native', () async {
+    Object? received;
+    mockFormaMethods((call) async {
+      received = call.arguments;
+      return null;
+    });
+    await bridge.beginCapturing('scan-9');
+    final arguments = received! as Map<Object?, Object?>;
+    expect(arguments['scanId'], 'scan-9');
+  });
+
   test('PlatformException UNSUPPORTED maps to UnsupportedDeviceError',
       () async {
     mockFormaMethods(

@@ -16,6 +16,9 @@ abstract interface class NativeBridge {
   /// Starts an `ObjectCaptureSession` and returns the scan id.
   Future<String> startCapture();
 
+  /// Advances the session from detection into image capture.
+  Future<void> beginCapturing(String scanId);
+
   /// Finishes capture and begins reconstruction for [scanId].
   Future<void> finishCapture(String scanId);
 

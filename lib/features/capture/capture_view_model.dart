@@ -66,6 +66,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   late NativeBridge _bridge;
   final _subs = <StreamSubscription<dynamic>>[];
   String? _scanId;
+  bool _capturingRequested = false;
 
   @override
   CaptureUiState build() {
@@ -137,8 +138,34 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       return;
     }
     try {
+      _capturingRequested = false;
       _scanId = await _bridge.startCapture();
     } on FormaError catch (e) {
+      AppHaptics.error();
+      state = state.copyWith(error: e.userMessage);
+    }
+  }
+
+  /// Starts the session, or advances to capturing if already started.
+  Future<void> startOrBegin() async {
+    if (_scanId == null) {
+      await start();
+      return;
+    }
+    await beginCapturing();
+  }
+
+  /// Advances the active session from detection into image capture.
+  Future<void> beginCapturing() async {
+    final id = _scanId;
+    if (id == null || _capturingRequested) {
+      return;
+    }
+    try {
+      _capturingRequested = true;
+      await _bridge.beginCapturing(id);
+    } on FormaError catch (e) {
+      _capturingRequested = false;
       AppHaptics.error();
       state = state.copyWith(error: e.userMessage);
     }
@@ -164,6 +191,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   Future<void> cancel() async {
     final id = _scanId;
     _scanId = null;
+    _capturingRequested = false;
     if (id != null) {
       unawaited(_bridge.cancelCapture(id));
     }

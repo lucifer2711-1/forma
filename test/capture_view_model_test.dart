@@ -12,16 +12,17 @@ void main() {
 
   late MemoryScanRepository repo;
   late ProviderContainer container;
+  late List<String> calls;
 
   setUp(() {
+    calls = [];
     mockFormaEventChannel();
     mockFormaMethods((call) async {
-      switch (call.method) {
-        case 'startCapture':
-          return 'scan-1';
-        default:
-          return null;
+      calls.add(call.method);
+      if (call.method == 'startCapture') {
+        return 'scan-1';
       }
+      return null;
     });
     repo = MemoryScanRepository();
     container = ProviderContainer(
@@ -34,11 +35,14 @@ void main() {
     clearFormaChannelMocks();
   });
 
-  test('start/finish/complete persists the scan', () async {
+  test('start/beginCapturing/finish/complete persists the scan', () async {
     final vm = container.read(captureViewModelProvider.notifier);
 
     await vm.start();
     expect(vm.state.phase, isNull);
+
+    await vm.beginCapturing();
+    expect(calls, contains('beginCapturing'));
 
     await vm.finish();
     expect(vm.state.isReconstructing, isTrue);

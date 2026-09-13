@@ -38,6 +38,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       vsync: this,
       duration: Motion.pulse,
     )..repeat(reverse: true);
+    // Opening the screen starts the native session (spec §8.4:
+    // initializing → ready → detecting); the user then taps to capture.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(ref.read(captureViewModelProvider.notifier).start());
+    });
   }
 
   @override
@@ -98,7 +103,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
               ),
             ),
           ),
-          if (state.isIdle)
+          if (_showsStartButton(state))
             ScaleTransition(
               scale: Tween<double>(begin: 1, end: 1.05).animate(
                 CurvedAnimation(parent: _pulse, curve: Motion.curvePulse),
@@ -112,11 +117,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     );
   }
 
+  /// Whether the pulsing "Start Capture" CTA should show (spec §8.4).
+  bool _showsStartButton(CaptureUiState state) {
+    switch (state.phase) {
+      case null:
+      case CapturePhase.initializing:
+      case CapturePhase.ready:
+      case CapturePhase.detecting:
+        return true;
+      case CapturePhase.capturing:
+      case CapturePhase.finishing:
+      case CapturePhase.completed:
+      case CapturePhase.failed:
+        return false;
+    }
+  }
+
   Widget _buildStartButton() => PrimaryButton(
         label: Strings.scanCta,
         onPressed: () {
           AppHaptics.tap();
-          unawaited(ref.read(captureViewModelProvider.notifier).start());
+          unawaited(
+            ref.read(captureViewModelProvider.notifier).startOrBegin(),
+          );
         },
       );
 

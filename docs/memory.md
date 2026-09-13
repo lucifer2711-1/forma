@@ -58,11 +58,25 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
     channel name + `encodeSuccessEnvelope` + `Duration.zero` pump.
 11. **very_good_analysis**: `discarded_futures` fires on fire-and-forget
     notifier calls in widgets — wrap in `unawaited()` (import dart:async).
+12. **macos-14 runner = Xcode 15.4 / iOS 17.5 SDK.** `ObjectCaptureSession`
+    is NOT in RealityKit's main swiftinterface — it lives in the
+    `_RealityKit_SwiftUI` overlay: `import SwiftUI` + `import RealityKit`
+    (both required). The class is `@MainActor`.
+13. **Verified PhotogrammetrySession API** (Apple docs, iOS 17+):
+    `init(input: URL, configuration: .init())` (input is the images
+    directory URL — no `.images` case), `Request(modelFile: outputURL)`,
+    `Result.modelFile(URL)`, `Output` has `.processingCancelled` (NOT
+    `.invalidated`), `.requestProgress(_, fractionComplete:)`.
+14. **ObjectCaptureSession state machine**: `start()` → `.ready` →
+    `startDetecting()` → `.detecting` → `startCapturing()` → `.capturing`
+    → `finish()` → `.completed`. `feedback` is a `Set<Feedback>` (map to
+    one value by priority). Added `beginCapturing` to the bridge contract
+    for the explicit `startCapturing()` step.
 
 ## Platform Bridge Contract (architecture.md §3)
 - MethodChannel `com.forma.app/native`: isScanSupported, hasLiDAR,
-  startCapture→scanId, finishCapture, cancelCapture, startReconstruction,
-  exportModel{scanId,format}.
+  startCapture→scanId, beginCapturing, finishCapture, cancelCapture,
+  startReconstruction, exportModel{scanId,format}.
 - EventChannel `com.forma.app/capture_events`: payloads `{"type": …,
   "value": …}` — phase / feedback / reconstruction_progress /
   reconstruction_complete / error{code,message}.

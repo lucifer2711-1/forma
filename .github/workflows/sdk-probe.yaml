@@ -3,8 +3,6 @@ name: SDK Probe
 # Temporary: dumps the RealityKit Swift interface from the macOS runner
 # so we can write the NativeModule against the real SDK surface.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:

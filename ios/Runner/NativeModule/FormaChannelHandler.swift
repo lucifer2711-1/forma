@@ -3,13 +3,7 @@ import Foundation
 
 /// Registers Forma's method + event channels and routes Dart calls to the
 /// native services. The wire contract must match `IosNativeBridge` (Dart):
-///
-/// MethodChannel `com.forma.app/native`:
-/// `isScanSupported`, `hasLiDAR`, `startCapture`, `finishCapture{scanId}`,
-/// `cancelCapture{scanId}`, `startReconstruction{scanId}`,
-/// `exportModel{scanId, format}`.
-///
-/// EventChannel `com.forma.app/capture_events` — see `FormaEventSink`.
+/// see architecture.md §3 and `FormaEventSink` for the event payloads.
 final class FormaChannelHandler: NSObject, FlutterPlugin {
   private let events: FormaEventSink
   private let captureService: CaptureService
@@ -40,7 +34,10 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     )
     let events = FormaEventSink()
     let exportService = ExportService()
-    let handler = FormaChannelHandler(events: events, exportService: exportService)
+    let handler = FormaChannelHandler(
+      events: events,
+      exportService: exportService
+    )
     eventChannel.setStreamHandler(events)
     registrar.addMethodCallDelegate(handler, channel: methodChannel)
   }
@@ -52,22 +49,34 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     case "hasLiDAR":
       result(CapabilityChecker.hasLiDAR)
     case "startCapture":
-      startCapture(result)
+      Task { [weak self] in
+        guard let self else { return }
+        do {
+          result(try await self.captureService.startAsync())
+        } catch let error as FormaNativeError {
+          result(FlutterError.forma(error))
+        } catch {
+          result(self.flutterError(error, domain: .capture))
+        }
+      }
+    case "beginCapturing":
+      withScanId(call, result: result, domain: .capture) { scanId in
+        try await self.captureService.beginCapturingAsync(scanId: scanId)
+      }
     case "finishCapture":
-      withScanId(call, result, domain: .capture) { scanId in
-        try captureService.finish(scanId: scanId)
-        result(nil)
+      withScanId(call, result: result, domain: .capture) { scanId in
+        try await self.captureService.finishAsync(scanId: scanId)
       }
     case "cancelCapture":
-      withScanId(call, result, domain: .capture) { scanId in
-        captureService.cancel(scanId: scanId)
-        reconstructionService.cancel(scanId: scanId)
-        result(nil)
+      withScanId(call, result: result, domain: .capture) { scanId in
+        await self.captureService.cancelAsync(scanId: scanId)
       }
     case "startReconstruction":
-      withScanId(call, result, domain: .reconstruct) { scanId in
-        reconstructionService.start(scanId: scanId, capture: captureService)
-        result(nil)
+      withScanId(call, result: result, domain: .reconstruct) { scanId in
+        self.reconstructionService.start(
+          scanId: scanId,
+          capture: self.captureService
+        )
       }
     case "exportModel":
       exportModel(call, result)
@@ -76,23 +85,23 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     }
   }
 
-  private func startCapture(_ result: @escaping FlutterResult) {
-    do {
-      result(try captureService.start())
-    } catch let error as FormaNativeError {
-      result(FlutterError.forma(error))
-    } catch {
-      result(FlutterError(code: FormaErrorDomain.capture.rawValue, message: "\(error)", details: nil))
-    }
-  }
-
-  private func exportModel(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  private func exportModel(
+    _ call: FlutterMethodCall,
+    _ result: @escaping FlutterResult
+  ) {
     guard
       let arguments = call.arguments as? [String: Any],
       let scanId = arguments["scanId"] as? String,
       let format = arguments["format"] as? String
     else {
-      result(FlutterError(code: FormaErrorDomain.export.rawValue, message: "Missing arguments", details: nil))
+      result(flutterError(
+        FormaNativeError(
+          domain: .export,
+          code: 3004,
+          message: "Missing arguments"
+        ),
+        domain: .export
+      ))
       return
     }
     do {
@@ -101,7 +110,7 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     } catch let error as FormaNativeError {
       result(FlutterError.forma(error))
     } catch {
-      result(FlutterError(code: FormaErrorDomain.export.rawValue, message: "\(error)", details: nil))
+      result(flutterError(error, domain: .export))
     }
   }
 
@@ -109,21 +118,39 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult,
     domain: FormaErrorDomain,
-    body: (String) throws -> Void
+    body: @escaping (String) async throws -> Void
   ) {
     guard
       let arguments = call.arguments as? [String: Any],
       let scanId = arguments["scanId"] as? String
     else {
-      result(FlutterError(code: domain.rawValue, message: "Missing scanId", details: nil))
+      result(flutterError(
+        FormaNativeError(
+          domain: domain,
+          code: 0000,
+          message: "Missing scanId"
+        ),
+        domain: domain
+      ))
       return
     }
-    do {
-      try body(scanId)
-    } catch let error as FormaNativeError {
-      result(FlutterError.forma(error))
-    } catch {
-      result(FlutterError(code: domain.rawValue, message: "\(error)", details: nil))
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await body(scanId)
+        result(nil)
+      } catch let error as FormaNativeError {
+        result(FlutterError.forma(error))
+      } catch {
+        result(self.flutterError(error, domain: domain))
+      }
     }
+  }
+
+  private func flutterError(
+    _ error: Error,
+    domain: FormaErrorDomain
+  ) -> FlutterError {
+    FlutterError(code: domain.rawValue, message: "\(error)", details: nil)
   }
 }

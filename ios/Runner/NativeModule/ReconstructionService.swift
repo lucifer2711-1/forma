@@ -17,8 +17,13 @@ final class ReconstructionService {
   func start(scanId: String, capture: CaptureService) {
     tasks[scanId]?.cancel()
     tasks[scanId] = Task.detached { [weak self] in
-      guard let imagesDirectory = await capture.awaitCompletion(scanId: scanId) else {
-        self?.events.emitError(code: 2003, message: "Capture incomplete for scan \(scanId)")
+      guard let imagesDirectory = await capture.awaitCompletion(
+        scanId: scanId
+      ) else {
+        self?.events.emitError(
+          code: 2003,
+          message: "Capture incomplete for scan \(scanId)"
+        )
         return
       }
       await self?.reconstruct(scanId: scanId, imagesDirectory: imagesDirectory)
@@ -37,12 +42,16 @@ final class ReconstructionService {
         at: outputURL.deletingLastPathComponent(),
         withIntermediateDirectories: true
       )
+      try? FileManager.default.removeItem(at: outputURL)
       let session = try PhotogrammetrySession(
-        inputs: .images(directory: imagesDirectory)
+        input: imagesDirectory,
+        configuration: .init()
       )
-      try await session.process(requests: [.model(outputURL)])
+      try session.process(
+        requests: [PhotogrammetrySession.Request(modelFile: outputURL)]
+      )
       for try await output in session.outputs {
-        try handle(output, scanId: scanId)
+        handle(output, scanId: scanId)
       }
     } catch {
       events.emitError(code: 2001, message: error.localizedDescription)
@@ -52,20 +61,20 @@ final class ReconstructionService {
   private func handle(
     _ output: PhotogrammetrySession.Output,
     scanId: String
-  ) throws {
+  ) {
     switch output {
-    case .requestProgress(_, let fraction):
+    case .requestProgress(_, fractionComplete: let fraction):
       events.emitProgress(fraction)
     case .requestComplete(_, let result):
-      if case .model(let url) = result {
+      if case .modelFile(let url) = result {
         onModelReady(scanId, url)
         events.emitComplete(url.path)
       }
     case .requestError(_, let error):
       events.emitError(code: 2002, message: error.localizedDescription)
-    case .invalidated(let error):
-      events.emitError(code: 2004, message: error.localizedDescription)
-    case .inputComplete, .processingComplete:
+    case .inputComplete, .processingComplete, .processingCancelled,
+      .automaticDownsampling, .stitchingIncomplete, .invalidSample,
+      .skippedSample, .requestProgressInfo:
       break
     @unknown default:
       break

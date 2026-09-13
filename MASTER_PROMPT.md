@@ -706,3 +706,6 @@ If any box is unchecked, it's not v1.0.
 | 2026-09-14 | IPA delivery: Sideloadly + personal Apple ID (not TestFlight) | No Apple Developer Program yet ($99/yr deferred); 7-day resign cadence accepted |
 | 2026-09-14 | vphone-cli rejected as test target | Requires Apple Silicon macOS 15+ host; GH runners are nested VMs; guest has no LiDAR/camera |
 | 2026-09-14 | Test device: iPhone 16 Pro Max (owned, LiDAR) | — |
+| 2026-09-14 | `beginCapturing` added to bridge contract | ObjectCaptureSession requires explicit `startCapturing()` from `.detecting` (verified: Apple docs + macos-14 Xcode 15.4 SDK probe) |
+| 2026-09-14 | ObjectCaptureSession needs `import SwiftUI` (lives in `_RealityKit_SwiftUI` overlay), is `@MainActor` | CI compile on iOS 17.5 SDK — absent from RealityKit main interface |
+| 2026-09-14 | Podfile removed — project uses SPM integration (FlutterGeneratedPluginSwiftPackage) | `flutter build ios` failed with CocoaPods sandbox-sync error; SPM is the default for this template |

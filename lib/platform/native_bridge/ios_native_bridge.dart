@@ -126,6 +126,10 @@ class IosNativeBridge implements NativeBridge {
   }
 
   @override
+  Future<void> beginCapturing(String scanId) =>
+      _invoke<void>('beginCapturing', {'scanId': scanId});
+
+  @override
   Future<void> finishCapture(String scanId) =>
       _invoke<void>('finishCapture', {'scanId': scanId});
 
