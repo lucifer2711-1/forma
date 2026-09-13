@@ -15,7 +15,7 @@ final class CaptureService {
   private var session: ObjectCaptureSession?
   private var scanId: String?
   private var imagesDirectories: [String: URL] = [:]
-  private var completedScans: Set<String> = [:]
+  private var completedScans: Set<String> = []
   private var completionWaiters: [String: [CheckedContinuation<URL?, Never>]] = [:]
   private var stateTask: Task<Void, Never>?
   private var feedbackTask: Task<Void, Never>?
