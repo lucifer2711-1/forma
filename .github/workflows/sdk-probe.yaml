@@ -1,0 +1,41 @@
+name: SDK Probe
+
+# Temporary: dumps the RealityKit Swift interface from the macOS runner
+# so we can write the NativeModule against the real SDK surface.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: macos-14
+    steps:
+      - name: Dump RealityKit interface
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          echo "SDK: $SDK"
+          IFACE="$(find "$SDK/System/Library/Frameworks/RealityKit.framework" -name "*.swiftinterface" | grep "arm64-apple-ios.swiftinterface" | head -1)"
+          echo "Interface: $IFACE"
+          echo "===== ObjectCaptureSession presence ====="
+          grep -c "ObjectCaptureSession" "$IFACE" || echo "NOT FOUND"
+          echo "===== ObjectCaptureSession decl ====="
+          grep -n "public final class ObjectCaptureSession\|public class ObjectCaptureSession" "$IFACE" || true
+          echo "===== ObjectCapture related ====="
+          grep -n "public .*ObjectCapture" "$IFACE" | head -40 || true
+          echo "===== PhotogrammetrySession init ====="
+          grep -n "public init(input" "$IFACE" || true
+          echo "===== enum Input ====="
+          awk '/public enum Input/,/^    }/' "$IFACE" | head -50
+          echo "===== enum Request ====="
+          awk '/public enum Request /,/^    }/' "$IFACE" | head -80
+          echo "===== enum Output ====="
+          awk '/public enum Output /,/^    }/' "$IFACE" | head -60
+          echo "===== enum Result ====="
+          awk '/public enum Result /,/^    }/' "$IFACE" | head -40
+          echo "===== start(imagesDirectory ====="
+          grep -n "func start(" "$IFACE" | head -10 || true
+          echo "===== ARKit check in Runner target ====="
+          grep -rn "supportsSceneReconstruction" "$SDK/System/Library/Frameworks/ARKit.framework/Headers/ARConfiguration.h" | head -3 || true
