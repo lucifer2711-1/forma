@@ -5,20 +5,14 @@ import SwiftUI
 import UIKit
 
 /// The SwiftUI content that renders a live `ObjectCaptureSession` camera
-/// feed via Apple's `ObjectCaptureView`. The session is held in a constant
-/// binding shim — `ObjectCaptureView` requires a `Binding`, but the session
-/// lifecycle is owned by `CaptureService`, so the setter is a no-op.
+/// feed via Apple's `ObjectCaptureView` (iOS 17 SDK signature: the session
+/// is passed directly, not as a binding).
 struct CapturePreviewContent: View {
   let session: ObjectCaptureSession
 
   var body: some View {
-    ObjectCaptureView(
-      session: Binding(
-        get: { session },
-        set: { _ in }
-      )
-    )
-    .ignoresSafeArea()
+    ObjectCaptureView(session: session)
+      .ignoresSafeArea()
   }
 }
 

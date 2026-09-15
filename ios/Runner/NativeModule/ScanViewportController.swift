@@ -1,6 +1,7 @@
 import Flutter
 import Foundation
 import RealityKit
+import SwiftUI
 
 /// Holds the active `ObjectCaptureSession` so the native preview can bind
 /// to it, and forwards session phase/feedback to Dart.
@@ -30,6 +31,11 @@ final class ScanViewportController: NSObject {
   func clearSession() {
     session = nil
     preview?.unbind()
+  }
+
+  /// Whether a capture session is currently alive.
+  var hasActiveSession: Bool {
+    session != nil
   }
 
   /// Registers the platform view's renderer and binds any live session.
