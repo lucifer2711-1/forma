@@ -42,10 +42,21 @@ final class CapturePreviewRendererImpl: CapturePreviewRenderer {
 
   func bind(session: ObjectCaptureSession) {
     host.rootView = AnyView(CapturePreviewContent(session: session))
+    kickLifecycle()
   }
 
   func unbind() {
     host.rootView = AnyView(Color.black)
+  }
+
+  /// The hosting controller never joins the window hierarchy under a
+  /// Flutter platform view, so SwiftUI misses the appearance callbacks
+  /// that let content activate. Fire them manually once.
+  private func kickLifecycle() {
+    host.beginAppearanceTransition(true, animated: false)
+    host.endAppearanceTransition()
+    host.view.setNeedsLayout()
+    host.view.layoutIfNeeded()
   }
 }
 
@@ -63,6 +74,11 @@ final class CapturePreviewPlatformView: NSObject, FlutterPlatformView {
   ) {
     embeddedView = MainActor.assumeIsolated {
       let renderer = CapturePreviewRendererImpl()
+      // Size the hosted view to Flutter's layout and keep it tracking
+      // resizes — otherwise the SwiftUI content renders at zero size
+      // (black screen) even though the session is live.
+      renderer.view.frame = frame
+      renderer.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       controller.setPreview(renderer)
       return renderer.view
     }

@@ -84,29 +84,32 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   Widget _buildOverlay(CaptureUiState state) {
     final isError = state.error != null;
-    return SafeArea(
-      child: IgnorePointer(
-        ignoring: !isError,
+    if (isError) {
+      // Opaque failure layer: blocks the camera and offers retry.
+      return SafeArea(
         child: ColoredBox(
-          color: isError
-              ? Theme.of(context).colorScheme.surface.withValues(alpha: 0.92)
-              : Colors.transparent,
+          color:
+              Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.xxl),
-            child: Column(
-              children: [
-                _buildTopBar(state),
-                Expanded(
-                  child: Center(
-                    child: isError
-                        ? _buildError(state.error!)
-                        : _buildStatusText(state),
-                  ),
-                ),
-                if (!isError) _buildBottomControls(state),
-              ],
-            ),
+            child: _buildError(state.error!),
           ),
+        ),
+      );
+    }
+    // Live layer: chrome sits on the preview; only the widgets themselves
+    // hit-test, so the camera view receives the rest of the touches.
+    // (Device test 2026-09-15: wrapping the whole overlay in IgnorePointer
+    // made Start/Finish/Close untappable — do not reintroduce it.)
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: Column(
+          children: [
+            _buildTopBar(state),
+            Expanded(child: Center(child: _buildStatusText(state))),
+            _buildBottomControls(state),
+          ],
         ),
       ),
     );
