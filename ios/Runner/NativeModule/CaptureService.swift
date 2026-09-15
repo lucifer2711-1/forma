@@ -56,10 +56,8 @@ final class CaptureService {
   /// Starts a capture session for a new scan; returns the scan id.
   func start() throws -> String {
     let auth = AVCaptureDevice.authorizationStatus(for: .video)
-    CameraDebugLogger.capture.info(
-      "camera authorization: \(auth.rawValue, privacy: .public) "
-        "(2=authorized)"
-    )
+    let authLog = "camera authorization: \(auth.rawValue) (2=authorized)"
+    CameraDebugLogger.capture.info("\(authLog, privacy: .public)")
     let scanId = UUID().uuidString
     let imagesDirectory = try FormaStorage.makeScanImagesDirectory(
       scanId: scanId
