@@ -64,7 +64,7 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     case "hasActiveCaptureSession":
       Task { [weak self] in
         guard let self else { return }
-        result(self.viewport.hasActiveSession)
+        result(await self.viewport.hasActiveSession)
       }
     case "startCapture":
       Task { [weak self] in
