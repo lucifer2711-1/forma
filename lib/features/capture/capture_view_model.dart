@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:forma/core/errors/forma_error.dart';
@@ -104,6 +105,9 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       }))
       ..add(_bridge.reconstructionCompleteUpdates.listen(_onComplete))
       ..add(_bridge.errorUpdates.listen((error) {
+        // Keep the technical detail in logs only — the UI shows the safe
+        // message (rules.md §7), but never swallow the diagnostic entirely.
+        debugPrint('[forma] bridge error ${error.code}: ${error.message}');
         AppHaptics.error();
         state = state.copyWith(
           isReconstructing: false,
@@ -113,11 +117,11 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   }
 
   Future<void> _onComplete(String modelPath) async {
-    AppHaptics.success();
     final id = _scanId;
     if (id == null) {
       return;
     }
+    debugPrint('[forma] scan $id completed → $modelPath');
     final now = DateTime.now();
     await ref.read(scanRepositoryProvider).save(
           Scan(
@@ -130,6 +134,12 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
           ),
         );
     state = state.copyWith(isReconstructing: false, isCompleted: true);
+    // Clear the scan bookkeeping so the NEXT session can start; the UI
+    // state itself stays "completed" until the screen pops and start()
+    // resets it. (Device-test finding 2026-09-15: reopening capture must
+    // never inherit the finished session.)
+    _scanId = null;
+    _capturingRequested = false;
   }
 
   /// Starts a new capture session.
@@ -137,6 +147,8 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     if (_scanId != null) {
       return;
     }
+    // Fresh session — clear any stale phase/feedback/error left over.
+    state = const CaptureUiState();
     try {
       _capturingRequested = false;
       _scanId = await _bridge.startCapture();

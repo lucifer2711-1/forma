@@ -54,6 +54,9 @@ final class ReconstructionService {
         handle(output, scanId: scanId)
       }
     } catch {
+      CameraDebugLogger.reconstruct.error(
+        "reconstruction failed: \(error.localizedDescription, privacy: .public)"
+      )
       events.emitError(code: 2001, message: error.localizedDescription)
     }
   }
@@ -71,6 +74,9 @@ final class ReconstructionService {
         events.emitComplete(url.path)
       }
     case .requestError(_, let error):
+      CameraDebugLogger.reconstruct.error(
+        "request error: \(error.localizedDescription, privacy: .public)"
+      )
       events.emitError(code: 2002, message: error.localizedDescription)
     case .inputComplete, .processingComplete, .processingCancelled,
       .automaticDownsampling, .stitchingIncomplete, .invalidSample,

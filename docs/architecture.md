@@ -37,6 +37,11 @@ Native method-channel names (Phase 1): `com.forma.app/native` +
 `com.forma.app/capture_events`. All methods error via `PlatformException`
 mapped to a single `FormaError` hierarchy in Dart.
 
+Camera preview (2026-09-15): native `ObjectCaptureView` platform view
+registered as `com.forma.app/capture_preview` (UiKitView in Dart;
+ScanViewportController binds the active session to it).
+`hasActiveCaptureSession` probes the native session state.
+
 ## 4. Data Flow
 Scan tap → `nativeBridge.startCapture()` → phases stream → capture UI →
 `finishCapture` → `startReconstruction` → progress → complete →

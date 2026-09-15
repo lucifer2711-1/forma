@@ -9,11 +9,17 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
   private let captureService: CaptureService
   private let reconstructionService: ReconstructionService
   private let exportService: ExportService
+  private let viewport: ScanViewportController
 
-  private init(events: FormaEventSink, exportService: ExportService) {
+  private init(
+    events: FormaEventSink,
+    exportService: ExportService,
+    viewport: ScanViewportController
+  ) {
     self.events = events
     self.exportService = exportService
-    self.captureService = CaptureService(events: events)
+    self.viewport = viewport
+    self.captureService = CaptureService(events: events, viewport: viewport)
     let export = exportService
     self.reconstructionService = ReconstructionService(
       events: events,
@@ -34,12 +40,19 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     )
     let events = FormaEventSink()
     let exportService = ExportService()
+    let viewport = ScanViewportController(events: events)
     let handler = FormaChannelHandler(
       events: events,
-      exportService: exportService
+      exportService: exportService,
+      viewport: viewport
     )
     eventChannel.setStreamHandler(events)
     registrar.addMethodCallDelegate(handler, channel: methodChannel)
+    // Camera preview for the capture screen (CameraPreview.dart).
+    registrar.register(
+      CapturePreviewViewFactory(controller: viewport),
+      withId: "com.forma.app/capture_preview"
+    )
   }
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -48,6 +61,11 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
       result(CapabilityChecker.isScanSupported)
     case "hasLiDAR":
       result(CapabilityChecker.hasLiDAR)
+    case "hasActiveCaptureSession":
+      Task { [weak self] in
+        guard let self else { return }
+        result(self.viewport.hasActiveSession)
+      }
     case "startCapture":
       Task { [weak self] in
         guard let self else { return }

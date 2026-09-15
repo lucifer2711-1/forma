@@ -32,6 +32,8 @@ abstract final class Strings {
       'iPhone 12 Pro and newer Pro models, and iPad Pro (2020 or later) — '
       'any device with a LiDAR scanner.';
   static const close = 'Close';
+  static const cameraUnavailable =
+      'Camera preview unavailable. Check camera permission in Settings.';
   static const errorTitle = 'Something went wrong';
   static const errorBody = 'Please try again.';
 }

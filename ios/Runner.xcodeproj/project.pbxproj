@@ -24,6 +24,9 @@
 		F0000000000000000000B006 /* ReconstructionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A006 /* ReconstructionService.swift */; };
 		F0000000000000000000B007 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A007 /* ExportService.swift */; };
 		F0000000000000000000B008 /* FormaChannelHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A008 /* FormaChannelHandler.swift */; };
+		F0000000000000000000B009 /* ScanViewportController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A009 /* ScanViewportController.swift */; };
+		F0000000000000000000B00A /* CapturePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A00A /* CapturePreviewView.swift */; };
+		F0000000000000000000B00B /* CameraDebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A00B /* CameraDebugLogger.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +78,9 @@
 		F0000000000000000000A006 /* ReconstructionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/ReconstructionService.swift; sourceTree = "<group>"; };
 		F0000000000000000000A007 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/ExportService.swift; sourceTree = "<group>"; };
 		F0000000000000000000A008 /* FormaChannelHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/FormaChannelHandler.swift; sourceTree = "<group>"; };
+		F0000000000000000000A009 /* ScanViewportController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/ScanViewportController.swift; sourceTree = "<group>"; };
+		F0000000000000000000A00A /* CapturePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/CapturePreviewView.swift; sourceTree = "<group>"; };
+		F0000000000000000000A00B /* CameraDebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/CameraDebugLogger.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,6 +154,9 @@
 				F0000000000000000000A006 /* ReconstructionService.swift */,
 				F0000000000000000000A007 /* ExportService.swift */,
 				F0000000000000000000A008 /* FormaChannelHandler.swift */,
+				F0000000000000000000A009 /* ScanViewportController.swift */,
+				F0000000000000000000A00A /* CapturePreviewView.swift */,
+				F0000000000000000000A00B /* CameraDebugLogger.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -316,6 +325,9 @@
 				F0000000000000000000B006 /* ReconstructionService.swift in Sources */,
 				F0000000000000000000B007 /* ExportService.swift in Sources */,
 				F0000000000000000000B008 /* FormaChannelHandler.swift in Sources */,
+				F0000000000000000000B009 /* ScanViewportController.swift in Sources */,
+				F0000000000000000000B00A /* CapturePreviewView.swift in Sources */,
+				F0000000000000000000B00B /* CameraDebugLogger.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

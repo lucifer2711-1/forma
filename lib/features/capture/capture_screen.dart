@@ -11,14 +11,15 @@ import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/design_system/tokens/motion.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/features/capture/widgets/camera_preview.dart';
 import 'package:forma/features/capture/widgets/centered_message.dart';
 import 'package:forma/features/capture/widgets/reconstruction_panel.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
 
 /// Full-screen capture flow: aim → capture → reconstruct (spec §8.4).
 ///
-/// The camera preview itself is a native platform view added in Phase 2;
-/// this screen owns the guidance UI, state machine, and transitions.
+/// The camera preview is the native `ObjectCaptureView` platform view;
+/// this screen stacks guidance, phase messaging, and CTAs on top of it.
 class CaptureScreen extends ConsumerStatefulWidget {
   /// Creates the capture screen.
   const CaptureScreen({super.key});
@@ -57,64 +58,130 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     ref.listen(captureViewModelProvider, (previous, next) {
       final wasCompleted = previous?.isCompleted ?? false;
       if (next.isCompleted && !wasCompleted) {
+        AppHaptics.success();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(Strings.modelReady),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
         Navigator.of(context).pop();
       }
     });
 
     return Scaffold(
-      backgroundColor: FormaColors.of(context).bgSunken,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        leading: CloseButton(onPressed: _close),
-      ),
-      body: _buildBody(state),
-    );
-  }
-
-  Widget _buildBody(CaptureUiState state) {
-    if (state.error != null) {
-      return _buildError(state.error!);
-    }
-    if (state.isReconstructing) {
-      return ReconstructionPanel(progress: state.reconstructionProgress);
-    }
-    return _buildCapture(state);
-  }
-
-  Widget _buildCapture(CaptureUiState state) {
-    final colors = FormaColors.of(context);
-    final isCapturing = state.phase == CapturePhase.capturing;
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.xxl),
-      child: Column(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Expanded(
-            child: Center(
-              child: AnimatedSwitcher(
-                duration: Motion.snappy,
-                child: Text(
-                  _hintFor(state),
-                  key: ValueKey(_hintFor(state)),
-                  textAlign: TextAlign.center,
-                  style: AppTypography.headline.copyWith(
-                    color: colors.textPrimary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (_showsStartButton(state))
-            ScaleTransition(
-              scale: Tween<double>(begin: 1, end: 1.05).animate(
-                CurvedAnimation(parent: _pulse, curve: Motion.curvePulse),
-              ),
-              child: _buildStartButton(),
-            )
-          else if (isCapturing)
-            _buildFinishButton(),
+          const CameraPreview(),
+          _buildOverlay(state),
         ],
       ),
     );
+  }
+
+  Widget _buildOverlay(CaptureUiState state) {
+    final isError = state.error != null;
+    return SafeArea(
+      child: IgnorePointer(
+        ignoring: !isError,
+        child: ColoredBox(
+          color: isError
+              ? Theme.of(context).colorScheme.surface.withValues(alpha: 0.92)
+              : Colors.transparent,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xxl),
+            child: Column(
+              children: [
+                _buildTopBar(state),
+                Expanded(
+                  child: Center(
+                    child: isError
+                        ? _buildError(state.error!)
+                        : _buildStatusText(state),
+                  ),
+                ),
+                if (!isError) _buildBottomControls(state),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopBar(CaptureUiState state) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _PillIconButton(
+          icon: Icons.close,
+          semanticLabel: Strings.close,
+          onPressed: _close,
+        ),
+        // Reconstruction takes over the whole screen; hide chrome then.
+        if (!state.isReconstructing)
+          _PillIconButton(
+            icon: Icons.flashlight_off_outlined,
+            semanticLabel: 'Flashlight',
+            onPressed: () {
+              AppHaptics.tap();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Torch arrives in the next build'),
+                  behavior: SnackBarBehavior.floating,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStatusText(CaptureUiState state) {
+    if (state.isReconstructing) {
+      return ReconstructionPanel(progress: state.reconstructionProgress);
+    }
+    final colors = FormaColors.of(context);
+    return AnimatedSwitcher(
+      duration: Motion.snappy,
+      child: Container(
+        key: ValueKey(_hintFor(state)),
+        margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xl,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: colors.bgElevated.withValues(alpha: 0.72),
+          borderRadius: BorderRadius.circular(AppRadii.pill),
+        ),
+        child: Text(
+          _hintFor(state),
+          key: ValueKey(_hintFor(state)),
+          textAlign: TextAlign.center,
+          style: AppTypography.headline.copyWith(color: colors.textPrimary),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomControls(CaptureUiState state) {
+    if (_showsStartButton(state)) {
+      return ScaleTransition(
+        scale: Tween<double>(begin: 1, end: 1.05).animate(
+          CurvedAnimation(parent: _pulse, curve: Motion.curvePulse),
+        ),
+        child: _buildStartButton(),
+      );
+    }
+    if (state.phase == CapturePhase.capturing) {
+      return _buildFinishButton();
+    }
+    return const SizedBox(height: 56);
   }
 
   /// Whether the pulsing "Start Capture" CTA should show (spec §8.4).
@@ -196,5 +263,40 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     AppHaptics.tap();
     unawaited(ref.read(captureViewModelProvider.notifier).cancel());
     Navigator.of(context).pop();
+  }
+}
+
+/// Blurred circular icon button for the capture top bar (spec §8.4).
+class _PillIconButton extends StatelessWidget {
+  const _PillIconButton({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = FormaColors.of(context);
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Material(
+        color: colors.bgElevated.withValues(alpha: 0.72),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(icon, size: 22, color: colors.textPrimary),
+          ),
+        ),
+      ),
+    );
   }
 }

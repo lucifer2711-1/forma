@@ -12,6 +12,9 @@ import SwiftUI
 final class CaptureService {
   private let events: FormaEventSink
 
+  /// Bridges session events to Dart and binds sessions to the preview.
+  private var viewport: ScanViewportController?
+
   private var session: ObjectCaptureSession?
   private var scanId: String?
   private var imagesDirectories: [String: URL] = [:]
@@ -20,8 +23,9 @@ final class CaptureService {
   private var stateTask: Task<Void, Never>?
   private var feedbackTask: Task<Void, Never>?
 
-  nonisolated init(events: FormaEventSink) {
+  nonisolated init(events: FormaEventSink, viewport: ScanViewportController?) {
     self.events = events
+    self.viewport = viewport
   }
 
   // MARK: Nonisolated entry points (channel handler)
@@ -60,6 +64,7 @@ final class CaptureService {
     self.session = session
     self.scanId = scanId
     imagesDirectories[scanId] = imagesDirectory
+    viewport?.attach(session: session)
 
     // Tasks created here inherit the main actor.
     stateTask = Task { [weak self] in
@@ -71,7 +76,7 @@ final class CaptureService {
     feedbackTask = Task { [weak self] in
       guard let updates = self?.session?.feedbackUpdates else { return }
       for await feedback in updates {
-        self?.events.emitFeedback(Self.primaryFeedback(feedback))
+        self?.viewport?.forwardFeedback(Self.primaryFeedback(feedback))
       }
     }
     return scanId
@@ -115,6 +120,7 @@ final class CaptureService {
       self.session = nil
       stateTask?.cancel()
       feedbackTask?.cancel()
+      viewport?.clearSession()
     }
     if let imagesDirectory {
       try? FileManager.default.removeItem(
@@ -140,7 +146,7 @@ final class CaptureService {
   // MARK: Event handling
 
   private func handle(_ state: ObjectCaptureSession.CaptureState) {
-    events.emitPhase(Self.phaseName(state))
+    viewport?.forwardPhase(Self.phaseName(state))
     switch state {
     case .ready:
       // Auto-advance to bounding-box detection; the capture view
@@ -154,6 +160,9 @@ final class CaptureService {
     case .failed(let error):
       if let scanId {
         resumeWaiters(scanId, with: nil)
+        CameraDebugLogger.capture.error(
+          "capture failed (scan \(scanId, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+        )
         events.emitError(code: 1001, message: error.localizedDescription)
       }
     default:

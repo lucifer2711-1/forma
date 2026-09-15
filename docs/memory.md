@@ -72,6 +72,13 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
     → `finish()` → `.completed`. `feedback` is a `Set<Feedback>` (map to
     one value by priority). Added `beginCapturing` to the bridge contract
     for the explicit `startCapturing()` step.
+15. **ObjectCaptureSession `stateUpdates`/`feedbackUpdates` are
+    single-consumer streams.** Iterating them in two places splits events.
+    CaptureService owns the only iterations and forwards via
+    ScanViewportController; the preview platform view only renders.
+16. **ObjectCaptureView lives in SwiftUI/RealityKit** — host it via
+    UIHostingController inside a FlutterPlatformView; `import SwiftUI` +
+    `import RealityKit` both required (see gotcha 12).
 
 ## Platform Bridge Contract (architecture.md §3)
 - MethodChannel `com.forma.app/native`: isScanSupported, hasLiDAR,
@@ -115,3 +122,4 @@ Then Phase 2: capture screen with ObjectCaptureView platform view.
 | 1 | 2026-09-13 | Phase 0: scaffolding, tokens, components, drift schema, library UI, CI files | Phase 1 |
 | 2 | 2026-09-14 | Phase 1: real IosNativeBridge only, Swift NativeModule (8 files), Info.plist camera, pbxproj registration, unsupported screen, capture screen, windows target + smoke-run, MASTER_PROMPT.md | Commit, GitHub, CI macOS build, device test |
 | 3 | 2026-09-14 | GitHub repo created (public), CI green: 24 tests (Linux) + unsigned IPA (macOS, Sideloadly-ready artifact). API verified via Apple docs + SDK probe. beginCapturing added to bridge contract | Sideloadly device install on iPhone 16 Pro Max; then Phase 2 |
+| 4 | 2026-09-15 | First device test findings: blank capture screen (no camera preview), silent ~25% reconstruction failures, stale VM state after a finished scan. Shipped Phase 1.5: native ObjectCaptureView platform view (ScanViewportController + CapturePreviewView), capture VM reset + honest errors, os_log diagnostics (CameraDebugLogger), hasActiveCaptureSession probe | Rebuild IPA in CI → device retest: camera visible, guidance pill live, failure reason visible in logs |

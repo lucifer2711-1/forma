@@ -709,3 +709,7 @@ If any box is unchecked, it's not v1.0.
 | 2026-09-14 | `beginCapturing` added to bridge contract | ObjectCaptureSession requires explicit `startCapturing()` from `.detecting` (verified: Apple docs + macos-14 Xcode 15.4 SDK probe) |
 | 2026-09-14 | ObjectCaptureSession needs `import SwiftUI` (lives in `_RealityKit_SwiftUI` overlay), is `@MainActor` | CI compile on iOS 17.5 SDK — absent from RealityKit main interface |
 | 2026-09-14 | Podfile removed — project uses SPM integration (FlutterGeneratedPluginSwiftPackage) | `flutter build ios` failed with CocoaPods sandbox-sync error; SPM is the default for this template |
+| 2026-09-15 | Native `ObjectCaptureView` platform view (`com.forma.app/capture_preview`) shipped in Phase 1.5, before the full Phase 2 UI | First device test showed a blank capture screen — without the preview the user aims blind and photogrammetry failed at ~25% on garbage input |
+| 2026-09-15 | Capture/reconstruct errors surface full-screen with retry; details to `debugPrint` + `os_log` (`com.forma.app` subsystem) | Device test: failures were silent; diagnostics must survive no-Mac debugging |
+| 2026-09-15 | Capture VM hard-resets after completion; success haptic/snackbar moved to the screen's completion listener | Device test: reopening capture after a finished scan inherited stale state — "Finish" appeared to do nothing |
+| 2026-09-15 | go_router not yet adopted; Navigator.push routing; reconstruction UI lives inside CaptureScreen (ReconstructionPanel) | Kept from Phase 0; revisit when /model/:scanId lands in Phase 3 |

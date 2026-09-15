@@ -29,7 +29,11 @@
       (Phase 1 exit criteria)
 
 ## Phase 2 — Capture UI (Week 4)
-- [ ] `ScanCaptureScreen`: native preview (UiKitView) OR plugin UI
+- [x] Native `ObjectCaptureView` preview (UiKitView) shipped early
+      (2026-09-15, Phase 1.5) — first device test showed the screen blind;
+      camera preview was pulled forward from this phase. Guidance overlay
+      polish (24-dot ring, torch, auto-exit) remains below.
+- [ ] Guidance overlay polish: 24-dot ring, torch toggle, auto-exit
 - [ ] Guidance overlay (24-dot ring) driven by feedbackUpdates — if custom
 - [ ] CaptureViewModel state machine; haptics + animations per design.md
 - [ ] Cancel/discard flow; torch toggle
