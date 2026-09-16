@@ -153,6 +153,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     if (state.isReconstructing) {
       return ReconstructionPanel(progress: state.reconstructionProgress);
     }
+    // The "Starting camera…" scrim owns the center while the session
+    // spins up — showing the hint pill on top of it overlapped the text
+    // (device test 2026-09-16).
+    if (state.isSessionStarting && !state.isCameraLive) {
+      return const SizedBox.shrink();
+    }
     final colors = FormaColors.of(context);
     return AnimatedSwitcher(
       duration: Motion.snappy,

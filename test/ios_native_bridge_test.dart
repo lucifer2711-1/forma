@@ -83,6 +83,31 @@ void main() {
     );
   });
 
+  test('CAPTURE code 1005 maps to CameraPermissionError', () async {
+    mockFormaMethods(
+      (call) async => throw PlatformException(
+        code: 'CAPTURE',
+        message: 'Camera permission denied',
+        details: 1005,
+      ),
+    );
+    await expectLater(
+      bridge.startCapture(),
+      throwsA(isA<CameraPermissionError>()),
+    );
+  });
+
+  test('CAPTURE without 1005 maps to plain CaptureError', () async {
+    mockFormaMethods(
+      (call) async => throw PlatformException(
+        code: 'CAPTURE',
+        message: 'boom',
+        details: 1001,
+      ),
+    );
+    await expectLater(bridge.startCapture(), throwsA(isA<CaptureError>()));
+  });
+
   test('event stream parses phase, feedback, progress, complete, error',
       () async {
     final phases = <CapturePhase>[];

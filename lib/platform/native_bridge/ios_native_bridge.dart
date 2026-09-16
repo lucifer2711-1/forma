@@ -102,8 +102,12 @@ class IosNativeBridge implements NativeBridge {
 
   FormaError _mapError(PlatformException e) {
     final debug = '${e.code}: ${e.message ?? ''} ${e.details ?? ''}';
+    // Native error detail carries the numeric code — 1005 is camera
+    // permission denied, which deserves its own honest message.
+    final nativeCode = e.details is int ? e.details as int : null;
     return switch (e.code) {
       'UNSUPPORTED' => UnsupportedDeviceError(debug),
+      'CAPTURE' when nativeCode == 1005 => CameraPermissionError(debug),
       'CAPTURE' => CaptureError(debug),
       'RECONSTRUCT' => ReconstructionError(debug),
       'EXPORT' => ExportError(debug),

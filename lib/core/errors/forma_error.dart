@@ -32,6 +32,15 @@ class CaptureError extends FormaError {
       : super('Capture failed.', debugMessage: debug);
 }
 
+/// Camera permission was denied (native code 1005).
+class CameraPermissionError extends FormaError {
+  const CameraPermissionError([String? debug])
+      : super(
+          'Forma needs camera access to scan. Enable it in Settings.',
+          debugMessage: debug,
+        );
+}
+
 /// PhotogrammetrySession failed.
 class ReconstructionError extends FormaError {
   const ReconstructionError([String? debug])

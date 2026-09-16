@@ -64,17 +64,18 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     case "hasActiveCaptureSession":
       Task { [weak self] in
         guard let self else { return }
-        result(await self.viewport.hasActiveSession)
+        let alive = await self.viewport.hasActiveSession
+        self.respond(result, alive)
       }
     case "startCapture":
       Task { [weak self] in
         guard let self else { return }
         do {
-          result(try await self.captureService.startAsync())
+          self.respond(result, try await self.captureService.startAsync())
         } catch let error as FormaNativeError {
-          result(FlutterError.forma(error))
+          self.respond(result, FlutterError.forma(error))
         } catch {
-          result(self.flutterError(error, domain: .capture))
+          self.respond(result, self.flutterError(error, domain: .capture))
         }
       }
     case "beginCapturing":
@@ -156,12 +157,27 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
       guard let self else { return }
       do {
         try await body(scanId)
-        result(nil)
+        self.respond(result, nil)
       } catch let error as FormaNativeError {
-        result(FlutterError.forma(error))
+        self.respond(result, FlutterError.forma(error))
       } catch {
-        result(self.flutterError(error, domain: domain))
+        self.respond(result, self.flutterError(error, domain: domain))
       }
+    }
+  }
+
+  /// Sends a method-channel reply on the platform thread.
+  ///
+  /// Async handler continuations resume on the Swift concurrent executor,
+  /// NOT the main thread — and Flutter requires replies on the platform
+  /// thread. Off-main replies are silently dropped, leaving the Dart future
+  /// hanging forever (device-test finding 2026-09-16: startCapture never
+  /// resolved, so the capture screen sat on "Starting camera…").
+  private func respond(_ result: @escaping FlutterResult, _ value: Any?) {
+    if Thread.isMainThread {
+      result(value)
+    } else {
+      DispatchQueue.main.async { result(value) }
     }
   }
 

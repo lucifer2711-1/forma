@@ -34,8 +34,17 @@ final class ScanViewportController: NSObject {
   }
 
   /// Whether a capture session is currently alive.
+  ///
+  /// A session still in `.initializing` when this is probed has failed to
+  /// produce the first frame — a healthy session reaches `.ready` in well
+  /// under a second. Reporting it as alive would blind Dart's watchdog
+  /// (device-test finding 2026-09-16: black preview with no error because
+  /// the wedged session counted as active).
   var hasActiveSession: Bool {
-    session != nil
+    guard let session else {
+      return false
+    }
+    return session.state != .initializing
   }
 
   /// Registers the platform view's renderer and binds any live session.

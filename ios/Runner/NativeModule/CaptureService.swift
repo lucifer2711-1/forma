@@ -33,7 +33,7 @@ final class CaptureService {
 
   /// Starts a capture session on the main actor; returns the scan id.
   nonisolated func startAsync() async throws -> String {
-    try await start()
+    try await MainActor.run { try await start() }
   }
 
   /// Moves the session into image capture on the main actor.
@@ -54,10 +54,20 @@ final class CaptureService {
   // MARK: Session lifecycle
 
   /// Starts a capture session for a new scan; returns the scan id.
-  func start() throws -> String {
-    let auth = AVCaptureDevice.authorizationStatus(for: .video)
-    let authLog = "camera authorization: \(auth.rawValue) (2=authorized)"
-    CameraDebugLogger.capture.info("\(authLog, privacy: .public)")
+  func start() async throws -> String {
+    // Apple requires an explicit requestAccess before the session can use
+    // the camera. With .notDetermined, ObjectCaptureSession.start() wedges
+    // in .initializing forever — no frames, no phase events, black preview
+    // (device-test finding 2026-09-16). Ask, then fail honestly.
+    let granted = await AVCaptureDevice.requestAccess(for: .video)
+    if !granted {
+      CameraDebugLogger.capture.error("camera permission denied by user")
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1005,
+        message: "Camera permission denied"
+      )
+    }
     let scanId = UUID().uuidString
     let imagesDirectory = try FormaStorage.makeScanImagesDirectory(
       scanId: scanId
@@ -155,12 +165,15 @@ final class CaptureService {
     case .ready:
       // Auto-advance to bounding-box detection; the capture view
       // (Phase 2) lets the user confirm the box before capture begins.
+      CameraDebugLogger.capture.info("capture state: ready → startDetecting")
       session?.startDetecting()
     case .completed:
       if let scanId {
         completedScans.insert(scanId)
         resumeWaiters(scanId, with: imagesDirectories[scanId])
       }
+    case .initializing:
+      break
     case .failed(let error):
       if let scanId {
         resumeWaiters(scanId, with: nil)
