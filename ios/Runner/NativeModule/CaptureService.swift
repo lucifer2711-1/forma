@@ -23,6 +23,15 @@ final class CaptureService {
   private var completionWaiters: [String: [CheckedContinuation<URL?, Never>]] = [:]
   private var stateTask: Task<Void, Never>?
   private var feedbackTask: Task<Void, Never>?
+  private var statePollTask: Task<Void, Never>?
+
+  /// Last phase already acted on, so the stream and the poll below can both
+  /// feed `handle(_:)` without double-driving the state machine.
+  private var lastHandledPhase: String?
+
+  /// How often the session's `state` property is polled. It is a cheap
+  /// property read on the main actor.
+  private static let statePollNanoseconds: UInt64 = 200_000_000
 
   nonisolated init(events: FormaEventSink, viewport: ScanViewportController?) {
     self.events = events
@@ -100,16 +109,16 @@ final class CaptureService {
     )
 
     let session = ObjectCaptureSession()
-    session.start(imagesDirectory: imagesDirectory)
     CameraDebugLogger.capture.info(
       "capture session created (scan \(scanId, privacy: .public)) — awaiting state machine"
     )
     self.session = session
-    self.scanId = scanId
-    imagesDirectories[scanId] = imagesDirectory
-    viewport?.attach(session: session)
+    recordScan(scanId, imagesDirectory: imagesDirectory)
+    lastHandledPhase = nil
 
-    // Tasks created here inherit the main actor.
+    // Task created here inherits the main actor. Subscribed BEFORE start():
+    // an update sequence only yields transitions observed after it is
+    // consumed.
     stateTask = Task { [weak self] in
       guard let updates = self?.session?.stateUpdates else { return }
       for await state in updates {
@@ -122,6 +131,10 @@ final class CaptureService {
         self?.viewport?.forwardFeedback(Self.primaryFeedback(feedback))
       }
     }
+    startStatePolling()
+
+    session.start(imagesDirectory: imagesDirectory)
+    viewport?.attach(session: session)
     return scanId
   }
 
@@ -192,8 +205,10 @@ final class CaptureService {
     if scanId == self.scanId {
       self.scanId = nil
       self.session = nil
+      lastHandledPhase = nil
       stateTask?.cancel()
       feedbackTask?.cancel()
+      statePollTask?.cancel()
       viewport?.clearSession()
     }
     if let imagesDirectory {
@@ -219,20 +234,78 @@ final class CaptureService {
 
   // MARK: Event handling
 
+  /// Records the bookkeeping for a freshly created session, before any
+  /// state can be handled for it.
+  private func recordScan(_ scanId: String, imagesDirectory: URL) {
+    self.scanId = scanId
+    imagesDirectories[scanId] = imagesDirectory
+  }
+
+  /// Drives the session from its `state` property.
+  ///
+  /// The session's `stateUpdates`/`feedbackUpdates` sequences proved
+  /// unreliable on device: a session was created, reached `.ready`, and sat
+  /// there while the iteration produced no updates at all — so nothing ever
+  /// called `startDetecting()`, `.detecting` was never reached, and every
+  /// capture request was refused forever (device-test finding 2026-09-17:
+  /// `beginCapturing rejected in state ready` x30 with zero state events).
+  /// Polling the property is the dependable driver; the stream above stays
+  /// as a fast path.
+  private func startStatePolling() {
+    statePollTask?.cancel()
+    var readyObservations = 0
+    statePollTask = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self, let session = self.session else { return }
+        let state = session.state
+        self.handle(state)
+        if Self.phaseName(state) == "ready" {
+          readyObservations += 1
+          // Detection occasionally doesn't take on first ask; nudge again
+          // while the session waits, and log it so the device log shows it.
+          if readyObservations % 5 == 0 {
+            CameraDebugLogger.capture.error(
+              "session still .ready after \(readyObservations / 5)s — retrying startDetecting"
+            )
+            self.requestDetecting()
+          }
+        } else {
+          readyObservations = 0
+        }
+        do {
+          try await Task.sleep(nanoseconds: Self.statePollNanoseconds)
+        } catch {
+          return
+        }
+      }
+    }
+  }
+
+  /// Asks the session to begin detecting, only while it is actually ready.
+  private func requestDetecting() {
+    guard let session, Self.phaseName(session.state) == "ready" else {
+      return
+    }
+    session.startDetecting()
+  }
+
   private func handle(_ state: ObjectCaptureSession.CaptureState) {
+    let name = Self.phaseName(state)
+    // The stream and the poll both call in; only act on real changes.
+    guard name != lastHandledPhase else { return }
+    lastHandledPhase = name
     // Every transition is logged so a stuck session can be diagnosed from
-    // the device log alone (device test 2026-09-17: session alive, frames
-    // flowing, but tracking "not normal" → no .ready, UI stuck starting).
+    // the device log alone (device test 2026-09-17).
     CameraDebugLogger.capture.info(
-      "capture state → \(Self.phaseName(state), privacy: .public)"
+      "capture state → \(name, privacy: .public)"
     )
-    viewport?.forwardPhase(Self.phaseName(state))
+    viewport?.forwardPhase(name)
     switch state {
     case .ready:
       // Auto-advance to bounding-box detection; the capture view
       // (Phase 2) lets the user confirm the box before capture begins.
       CameraDebugLogger.capture.info("capture state: ready → startDetecting")
-      session?.startDetecting()
+      requestDetecting()
     case .completed:
       if let scanId {
         completedScans.insert(scanId)
