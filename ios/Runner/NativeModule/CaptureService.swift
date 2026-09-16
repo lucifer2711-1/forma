@@ -32,8 +32,12 @@ final class CaptureService {
   // MARK: Nonisolated entry points (channel handler)
 
   /// Starts a capture session on the main actor; returns the scan id.
+  ///
+  /// `start()` is async (camera-permission request), so the plain await
+  /// already hops to the main actor — `MainActor.run` requires a
+  /// synchronous closure and would not compile here.
   nonisolated func startAsync() async throws -> String {
-    try await MainActor.run { try await start() }
+    try await start()
   }
 
   /// Moves the session into image capture on the main actor.
