@@ -51,4 +51,13 @@ abstract final class Strings {
       'Point at a well-lit, textured surface — the camera is warming up.';
   static const torchLabel = 'Flashlight';
   static const torchComingSoon = 'Torch arrives in the next build';
+
+  /// Build stamp injected at compile time by CI via `--dart-define`
+  /// (`FORMA_BUILD`). Empty on local/dev builds, in which case nothing
+  /// is shown.
+  ///
+  /// Device-test finding 2026-09-17: a stale IPA was reinstalled over a fixed
+  /// one, so every fix looked like it had failed. The stamp makes the build
+  /// actually running on the phone visible without a USB connection.
+  static const buildStamp = String.fromEnvironment('FORMA_BUILD');
 }

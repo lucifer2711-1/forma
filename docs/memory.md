@@ -79,6 +79,19 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
 16. **ObjectCaptureView lives in SwiftUI/RealityKit** — host it via
     UIHostingController inside a FlutterPlatformView; `import SwiftUI` +
     `import RealityKit` both required (see gotcha 12).
+17. **`UIHostingController` is NOT retained by its own `view`.** Creating
+    one inside a platform-view init and letting it go out of scope leaves
+    the SwiftUI content permanently inert — a black preview even while
+    `ObjectCaptureSession` feeds frames (`processVideoData()` at 30 Hz in
+    the device log). Store it on the platform view, size the hosted view
+    in `layoutSubviews` (a zero-height host renders nothing), and kick
+    `beginAppearanceTransition` from `didMoveToWindow`.
+18. **`flutter build ios` bakes `--dart-define` values in, and the CI
+    artifact name is free text.** Name every IPA for its version and stamp
+    the version into the UI (`--dart-define=FORMA_BUILD`), because
+    Sideloadly happily reinstalls a stale `.ipa` from the previous run
+    (2026-09-17: the phone was repeatedly tested against build 1 while the
+    fixes sat in CI).
 
 ## Platform Bridge Contract (architecture.md §3)
 - MethodChannel `com.forma.app/native`: isScanSupported, hasLiDAR,
@@ -129,4 +142,5 @@ Then Phase 2: capture screen with ObjectCaptureView platform view.
 | 7 | 2026-09-16 | Screenshot-diagnosed root causes of black feed: (1) camera permission never requested → ObjectCaptureSession wedged in .initializing; now requestAccess(for: .video) before start(), denial = native 1005 → new CameraPermissionError; (2) method-channel replies dropped off-main → all handlers reply via respond() marshaling to DispatchQueue.main; (3) hasActiveSession probe blind to wedged sessions → initializing ≠ alive; hint pill no longer overlaps Starting-camera scrim; 29 tests green | Rebuild IPA in CI → device retest: expect permission prompt on first launch, live feed + point-cloud build once capturing |
 | 8 | 2026-09-16 | Update-install retest: still "Starting camera…" + crash on Start tap. Hardened: start() re-entrancy guard (permission dialog blocks startCapture; double-tap stacked a second native session) + 20s start-timeout → CameraTimeoutError (never hangs forever); Swift start() now replaces any previous session instead of stacking; beginCapturing/finish state guards (startCapturing on a non-detecting session traps the app = the crash); version 1.0.0+2 for install verification; 31 tests green | Reinstall +2 IPA → retest. If still stuck, capture os_log from Console.app (CameraDebugLogger) |
 | 9 | 2026-09-17 | Pulled device crash reports + live syslog over USB (pymobiledevice3 on Windows). All 4 crashes = EXC_BREAKPOINT in RealityKit DataModel.startCapturing() — Apple traps when session ≠ .detecting (+1 build, pre-guard). Live log on +2: guard rejected beginCapturing, no crash. **True root cause of black feed: device free space 3.43 GB < Apple's 4 GB hard requirement → session fails instantly with insufficientStorage.** Now: 1007 → StorageFullError with "free 4 GB" message via error event; failed-phase won't overwrite specific errors; 33 tests green | User frees ≥4 GB → retest; expect camera live + point cloud; storage message if under |
+| 11 | 2026-09-17 | Read the device's installed-app record over USB: the phone was running **build 1 with the iOS 17.5 SDK** — the original IPA, none of the fixes. Every "still stuck at Starting camera / all black" retest had been against that build. Also fixed a genuine black-preview bug: `CapturePreviewRendererImpl` was created and dropped inside the platform-view init, so nothing retained the `UIHostingController` (gotcha 17) → SwiftUI content could never render even with a live session. Renderer now held strongly, hosted view sized in `layoutSubviews`, lifecycle kicked from `didMoveToWindow`. CI stamps the build (`--dart-define=FORMA_BUILD`, shown in the library app bar as `v1.0.0+6`) and names every IPA/artifact for its version. 34 tests green; build +6 | Delete the old app, install the **+6** IPA, confirm `v1.0.0+6` in the app bar, then retest capture in good light |
 | 10 | 2026-09-17 | Retest on +3 with 10 GB free: still "Starting camera…", NO crashes. Live log (11 s window before iOS 27-beta syslog stream died): CoreOC frames flowing at ~30 Hz (processVideoData 0.14 ms) but "Camera tracking is not normal!" forever → session parked in .initializing, no .ready phase. Fixes: getSessionState() contract + Swift handler; watchdog distinguishes initializing (→ tracking-guidance overlay "well-lit textured surface", NOT an error — old probe falsely blamed permission) from none/failed (→ camera-dead); per-transition os_log; phaseName internal; 34 tests green; build +4 | Reinstall +4 → retest in GOOD LIGHT, textured surface. If still initializing: likely iOS 27 beta ARKit issue → retest on iOS 26.x |

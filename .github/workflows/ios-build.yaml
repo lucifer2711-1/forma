@@ -29,6 +29,18 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks | grep -i iphoneos || true
 
+      # Every artifact is named for the build it contains, so a stale IPA
+      # can never be sideloaded by mistake again (device-test finding
+      # 2026-09-17: an old build was reinstalled while the fixes were
+      # already in CI, and the device kept failing as if nothing changed).
+      - name: Read build version
+        id: version
+        run: |
+          STAMP=$(grep -E '^version:' pubspec.yaml | head -1 | awk '{print $2}')
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          echo "slug=$(echo "$STAMP" | tr '+' '-')" >> "$GITHUB_OUTPUT"
+          echo "Building version $STAMP"
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -44,7 +56,9 @@ jobs:
         run: flutter pub get
 
       - name: Build iOS (unsigned)
-        run: flutter build ios --release --no-codesign
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=FORMA_BUILD=${{ steps.version.outputs.stamp }}
 
       # Package as an IPA layout so Sideloadly can resign + install it.
       - name: Package unsigned IPA
@@ -52,18 +66,19 @@ jobs:
           mkdir -p build/ipa/Payload
           cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/Runner.app
           cd build/ipa
-          zip -qry forma-unsigned.ipa Payload
+          zip -qry "forma-${{ steps.version.outputs.slug }}-unsigned.ipa" Payload
+          ls -la
 
       - name: Upload unsigned .app
         uses: actions/upload-artifact@v4
         with:
-          name: forma-ios-build
+          name: forma-ios-build-${{ steps.version.outputs.slug }}
           path: build/ios/iphoneos
           retention-days: 14
 
       - name: Upload Sideloadly-ready IPA
         uses: actions/upload-artifact@v4
         with:
-          name: forma-unsigned-ipa
-          path: build/ipa/forma-unsigned.ipa
+          name: forma-${{ steps.version.outputs.slug }}-ipa
+          path: build/ipa/forma-${{ steps.version.outputs.slug }}-unsigned.ipa
           retention-days: 14

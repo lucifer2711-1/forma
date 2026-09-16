@@ -5,6 +5,7 @@ import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/components/empty_state.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
+import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/features/capture/capture_screen.dart';
 import 'package:forma/features/library/widgets/scan_card.dart';
 import 'package:forma/features/unsupported_device/unsupported_device_screen.dart';
@@ -25,6 +26,22 @@ class LibraryScreen extends ConsumerWidget {
           Strings.libraryTitle,
           style: Theme.of(context).textTheme.displayMedium,
         ),
+        // Visible build stamp (CI-injected) so a device test can confirm
+        // which build is installed without attaching a cable.
+        actions: [
+          if (Strings.buildStamp.isNotEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: AppSpacing.lg),
+                child: Text(
+                  'v${Strings.buildStamp}',
+                  style: AppTypography.caption.copyWith(
+                    color: colors.textTertiary,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: scans.when(
         loading: () => const Center(child: CircularProgressIndicator()),
