@@ -2,10 +2,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:forma/core/providers.dart';
+import 'package:forma/core/strings.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
 
 import 'native_channel_mock.dart';
 import 'scan_repository_memory.dart';
+
+/// Capture view model with a short watchdog so tests stay fast.
+class TestCaptureViewModel extends CaptureViewModel {
+  TestCaptureViewModel()
+      : super(watchdogTimeout: const Duration(milliseconds: 120));
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -92,5 +99,74 @@ void main() {
 
     expect(vm.state.isIdle, isTrue);
     expect(vm.state.phase, isNull);
+  });
+
+  test('phase events mark the camera live and a live probe keeps it',
+      () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'hasActiveCaptureSession') {
+        return true;
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+    expect(vm.state.isSessionStarting, isTrue);
+    expect(vm.state.isCameraLive, isFalse);
+
+    await emitFormaEvent({'type': 'phase', 'value': 'ready'});
+    await pumpEventQueue();
+
+    expect(vm.state.isCameraLive, isTrue);
+    expect(vm.state.isSessionStarting, isFalse);
+
+    // Outlast the short watchdog: the session probe says alive, so no
+    // error may surface and the camera stays live.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.error, isNull);
+    expect(vm.state.isCameraLive, isTrue);
+  });
+
+  test('watchdog surfaces an honest camera-dead error', () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'hasActiveCaptureSession') {
+        return false;
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // No phase event ever arrives; the watchdog probes the session and
+    // finds it gone.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.isCameraLive, isFalse);
+    expect(vm.state.error, Strings.cameraDead);
   });
 }

@@ -1,6 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 
-/// Semantic color tokens for Forma. Light values per design.md Â§1.1.
+/// Semantic color tokens for Forma. Light values per design.md §1.1.
 ///
 /// Dark-mode values live in [FormaColors.dark].
 @immutable
@@ -38,7 +38,7 @@ class FormaColors extends ThemeExtension<FormaColors> {
   /// Captions and tertiary text.
   final Color textTertiary;
 
-  /// Brand accent (warm orange â€” differentiates from Polycam blue).
+  /// Brand accent (warm orange — differentiates from Polycam blue).
   final Color accent;
 
   /// Soft tint of the accent.

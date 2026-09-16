@@ -31,6 +31,10 @@ abstract interface class NativeBridge {
   /// Exports the finished model to the given [format]; returns the file path.
   Future<String> exportModel(String scanId, ExportFormat format);
 
+  /// Whether a native capture session is currently alive (camera-health
+  /// probe used by the capture watchdog).
+  Future<bool> hasActiveCaptureSession();
+
   /// Continuous capture phase updates.
   Stream<CapturePhase> get phaseUpdates;
 

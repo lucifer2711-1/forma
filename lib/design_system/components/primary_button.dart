@@ -4,7 +4,7 @@ import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/motion.dart';
 
-/// Forma's primary pill button â€” accent background, white label.
+/// Forma's primary pill button — accent background, white label.
 ///
 /// Per design.md §3.1: height 56, scale 0.97 on press, loading state
 /// crossfades the label for a spinner.

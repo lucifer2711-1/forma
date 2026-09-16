@@ -7,10 +7,14 @@ import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
 
-/// Library grid tile â€” 3:4 thumbnail with a translucent info strip.
+/// Library grid tile — 3:4 thumbnail with a translucent info strip.
 ///
 /// Per design.md §3.3; context menu lands in Phase 3.
-class ScanCard extends StatelessWidget {
+///
+/// Thumbnails load asynchronously with graceful fallback: a missing or
+/// unreadable file shows the placeholder art instead of jank from sync
+/// I/O on the UI thread.
+class ScanCard extends StatefulWidget {
   /// Creates a card for [scan].
   const ScanCard({required this.scan, super.key});
 
@@ -18,19 +22,21 @@ class ScanCard extends StatelessWidget {
   final Scan scan;
 
   @override
+  State<ScanCard> createState() => _ScanCardState();
+}
+
+class _ScanCardState extends State<ScanCard> {
+  @override
   Widget build(BuildContext context) {
     final colors = FormaColors.of(context);
-    final thumbnail = scan.thumbnailPath == null
-        ? null
-        : File(scan.thumbnailPath!);
-
+    final path = widget.scan.thumbnailPath;
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadii.card),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (thumbnail != null && thumbnail.existsSync())
-            Image.file(thumbnail, fit: BoxFit.cover)
+          if (path != null)
+            _ThumbnailImage(path: path)
           else
             _PlaceholderArt(colors: colors),
           Positioned(
@@ -48,7 +54,7 @@ class ScanCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    scan.name,
+                    widget.scan.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.subhead.copyWith(
@@ -57,7 +63,7 @@ class ScanCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    _formatDate(scan.createdAt),
+                    _formatDate(widget.scan.createdAt),
                     style: AppTypography.caption.copyWith(
                       color: colors.textSecondary,
                     ),
@@ -70,23 +76,34 @@ class ScanCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  String _formatDate(DateTime date) {
-    final month = switch (date.month) {
-      1 => 'Jan',
-      2 => 'Feb',
-      3 => 'Mar',
-      4 => 'Apr',
-      5 => 'May',
-      6 => 'Jun',
-      7 => 'Jul',
-      8 => 'Aug',
-      9 => 'Sep',
-      10 => 'Oct',
-      11 => 'Nov',
-      _ => 'Dec',
-    };
-    return '$month ${date.day}';
+/// Decodes the thumbnail off the UI-critical path and falls back to the
+/// placeholder art when the file cannot be loaded.
+class _ThumbnailImage extends StatelessWidget {
+  const _ThumbnailImage({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = FormaColors.of(context);
+    final file = File(path);
+    return Image(
+      image: FileImage(file),
+      fit: BoxFit.cover,
+      frameBuilder: (context, child, frame, wasSync) {
+        if (wasSync) {
+          return child;
+        }
+        return AnimatedOpacity(
+          opacity: frame == null ? 0 : 1,
+          duration: const Duration(milliseconds: 120),
+          child: child,
+        );
+      },
+      errorBuilder: (context, error, stack) => _PlaceholderArt(colors: colors),
+    );
   }
 }
 
@@ -114,4 +131,22 @@ class _PlaceholderArt extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatDate(DateTime date) {
+  final month = switch (date.month) {
+    1 => 'Jan',
+    2 => 'Feb',
+    3 => 'Mar',
+    4 => 'Apr',
+    5 => 'May',
+    6 => 'Jun',
+    7 => 'Jul',
+    8 => 'Aug',
+    9 => 'Sep',
+    10 => 'Oct',
+    11 => 'Nov',
+    _ => 'Dec',
+  };
+  return '$month ${date.day}';
 }

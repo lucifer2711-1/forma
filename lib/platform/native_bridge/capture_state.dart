@@ -1,5 +1,5 @@
-﻿/// Capture session states, mirroring `ObjectCaptureSession.stateUpdates`
-/// on the native side (see architecture.md Â§3).
+/// Capture session states, mirroring `ObjectCaptureSession.stateUpdates`
+/// on the native side (see architecture.md §3).
 enum CapturePhase {
   /// Session is spinning up.
   initializing,

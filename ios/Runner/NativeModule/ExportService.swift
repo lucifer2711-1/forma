@@ -2,6 +2,10 @@ import Foundation
 
 /// Exports reconstructed models. USDZ is a real file copy; OBJ and STL
 /// writers arrive in Phase 4 (via MDLMesh) and fail honestly until then.
+///
+/// The in-memory registry only lives for the current run; the canonical
+/// on-disk model location (`Scans/{scanId}/Model.usdz`) is always checked
+/// as a fallback so export works after an app relaunch.
 final class ExportService {
   private var models: [String: URL] = [:]
 
@@ -12,7 +16,7 @@ final class ExportService {
 
   /// Exports [scanId] to [format]; returns the exported file URL.
   func export(scanId: String, format: String) throws -> URL {
-    guard let source = models[scanId] else {
+    guard let source = resolveModel(scanId: scanId) else {
       throw FormaNativeError(
         domain: .export,
         code: 3001,
@@ -42,5 +46,18 @@ final class ExportService {
         message: "Unknown export format \(format)"
       )
     }
+  }
+
+  /// Resolves the model file for [scanId]: the registered URL if it still
+  /// exists, else the canonical reconstruction output for the scan.
+  private func resolveModel(scanId: String) -> URL? {
+    if let registered = models[scanId],
+       FileManager.default.fileExists(atPath: registered.path) {
+      return registered
+    }
+    let canonical = FormaStorage.modelURL(scanId: scanId)
+    return FileManager.default.fileExists(atPath: canonical.path)
+      ? canonical
+      : nil
   }
 }

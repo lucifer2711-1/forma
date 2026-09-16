@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forma/core/providers.dart';
+import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/components/empty_state.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
@@ -21,7 +22,7 @@ class LibraryScreen extends ConsumerWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: Text(
-          'Forma',
+          Strings.libraryTitle,
           style: Theme.of(context).textTheme.displayMedium,
         ),
       ),
@@ -29,17 +30,17 @@ class LibraryScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => EmptyState(
           icon: Icons.error,
-          title: 'Something went wrong',
-          subtitle: 'Could not load your library.',
-          ctaLabel: 'Try again',
+          title: Strings.loadFailedTitle,
+          subtitle: Strings.loadFailedSubtitle,
+          ctaLabel: Strings.retry,
           onCta: () => ref.invalidate(scanListProvider),
         ),
         data: (items) => items.isEmpty
             ? EmptyState(
                 icon: Icons.view_in_ar,
-                title: 'Nothing here yet',
-                subtitle: 'Scan your first object to turn it into 3D.',
-                ctaLabel: 'Start scanning',
+                title: Strings.emptyTitle,
+                subtitle: Strings.emptySubtitle,
+                ctaLabel: Strings.startScan,
                 onCta: () => _startScan(context, ref),
               )
             : GridView.builder(

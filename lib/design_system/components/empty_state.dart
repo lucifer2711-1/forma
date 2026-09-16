@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:forma/design_system/components/primary_button.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
@@ -6,7 +6,7 @@ import 'package:forma/design_system/tokens/app_typography.dart';
 
 /// Large icon + title + subtitle + optional CTA for empty screens.
 ///
-/// Per design.md Â§3.5: 72pt symbol at 40% opacity, Display M title.
+/// Per design.md §3.5: 72pt symbol at 40% opacity, Display M title.
 class EmptyState extends StatelessWidget {
   /// Creates an empty state.
   const EmptyState({

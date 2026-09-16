@@ -6,7 +6,7 @@ import 'package:forma/design_system/tokens/app_spacing.dart';
 /// Severity levels for the [Toast].
 enum ToastSeverity { info, success, error }
 
-/// Transient message overlay â€” surfaced via the Toast.show helper.
+/// Transient message overlay — surfaced via the Toast.show helper.
 ///
 /// Per rules.md §7: recoverable errors degrade to a toast, never a crash.
 class Toast extends StatelessWidget {

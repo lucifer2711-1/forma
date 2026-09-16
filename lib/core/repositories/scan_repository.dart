@@ -1,4 +1,4 @@
-﻿import 'package:drift/drift.dart';
+import 'package:drift/drift.dart';
 import 'package:forma/core/models/scan.dart';
 import 'package:forma/data/database/database.dart';
 
@@ -47,7 +47,7 @@ class DriftScanRepository implements ScanRepository {
             id: scan.id,
             name: scan.name,
             createdAt: scan.createdAt,
-            updatedAt: scan.createdAt,
+            updatedAt: DateTime.now(),
             statusIndex: scan.status.index,
             thumbnailPath: Value(scan.thumbnailPath),
             modelPath: Value(scan.modelPath),

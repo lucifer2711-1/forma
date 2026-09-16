@@ -11,6 +11,7 @@ import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/design_system/tokens/motion.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/features/capture/widgets/camera_health_overlay.dart';
 import 'package:forma/features/capture/widgets/camera_preview.dart';
 import 'package:forma/features/capture/widgets/centered_message.dart';
 import 'package:forma/features/capture/widgets/reconstruction_panel.dart';
@@ -76,6 +77,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         fit: StackFit.expand,
         children: [
           const CameraPreview(),
+          CameraHealthOverlay(
+            isCameraLive: state.isCameraLive,
+            isSessionStarting: state.isSessionStarting,
+          ),
           _buildOverlay(state),
         ],
       ),
@@ -128,12 +133,12 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         if (!state.isReconstructing)
           _PillIconButton(
             icon: Icons.flashlight_off_outlined,
-            semanticLabel: 'Flashlight',
+            semanticLabel: Strings.torchLabel,
             onPressed: () {
               AppHaptics.tap();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Torch arrives in the next build'),
+                  content: Text(Strings.torchComingSoon),
                   behavior: SnackBarBehavior.floating,
                   duration: Duration(seconds: 2),
                 ),

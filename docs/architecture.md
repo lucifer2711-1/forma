@@ -26,8 +26,9 @@ FormaApp (Flutter + Riverpod)
 
 ## 3. Bridge Contract (implemented as `NativeBridge`)
 Commands (Future-based): `isScanSupported`, `startCapture → scanId`,
-`finishCapture(scanId)`, `cancelCapture(scanId)`, `startReconstruction(scanId)`,
-`exportModel(scanId, format) → path`.
+`beginCapturing(scanId)`, `finishCapture(scanId)`, `cancelCapture(scanId)`,
+`startReconstruction(scanId)`, `exportModel(scanId, format) → path`,
+`hasActiveCaptureSession → bool` (camera-health probe).
 Streams (broadcast): `phaseUpdates` (initializing→ready→detecting→capturing→
 finishing→completed|failed), `feedbackUpdates` (objectTooClose/TooFar/
 movingTooFast/outOfFieldOfView), `reconstructionProgressUpdates` (0..1),

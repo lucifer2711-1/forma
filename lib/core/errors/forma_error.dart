@@ -53,3 +53,9 @@ class StoreError extends FormaError {
   const StoreError([String? debug])
       : super('Purchase could not be completed.', debugMessage: debug);
 }
+
+/// Native failed with a code we don't recognize.
+class UnknownError extends FormaError {
+  const UnknownError([String? debug])
+      : super('Something went wrong. Please try again.', debugMessage: debug);
+}

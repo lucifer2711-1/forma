@@ -21,8 +21,10 @@
 - [x] `isScanSupported` gating + unsupported-device explainer screen
 - [x] Camera permission + Info.plist strings; ios/Podfile created (was missing)
 - [x] Unit tests (bridge contract via binary-messenger mocks, view model,
-      unsupported screen, library navigation) — 23 green, analyze clean
+      unsupported screen, library navigation) — 27 green, analyze clean
 - [x] windows/ dev platform + smoke-run
+- [x] Capture VM camera-health state + overlay (CameraHealthOverlay),
+      session-start timeout semantics; UnknownError maps unmapped codes
 - [x] First CI macOS build (first Swift compile — no local Mac) — GREEN
 - [ ] Install on iPhone 16 Pro Max via Sideloadly; verify
       `isScanSupported` == true and capture session opens
@@ -33,6 +35,9 @@
       (2026-09-15, Phase 1.5) — first device test showed the screen blind;
       camera preview was pulled forward from this phase. Guidance overlay
       polish (24-dot ring, torch, auto-exit) remains below.
+- [x] Camera-health watchdog (2026-09-16): `hasActiveCaptureSession`
+      probe added to the bridge; silent session → honest camera-dead
+      error + CameraHealthOverlay instead of a frozen black preview.
 - [ ] Guidance overlay polish: 24-dot ring, torch toggle, auto-exit
 - [ ] Guidance overlay (24-dot ring) driven by feedbackUpdates — if custom
 - [ ] CaptureViewModel state machine; haptics + animations per design.md

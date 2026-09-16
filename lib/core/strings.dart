@@ -27,13 +27,20 @@ abstract final class Strings {
       '3D scanning uses the LiDAR sensor, available on iPhone Pro models '
       '(12 Pro and newer) with iOS 17 or later.';
   static const unsupportedCta = 'Learn more about supported devices';
+  static const close = 'Close';
   static const unsupportedDevicesTitle = 'Devices that can scan';
   static const unsupportedDevicesBody =
       'iPhone 12 Pro and newer Pro models, and iPad Pro (2020 or later) — '
       'any device with a LiDAR scanner.';
-  static const close = 'Close';
   static const cameraUnavailable =
       'Camera preview unavailable. Check camera permission in Settings.';
   static const errorTitle = 'Something went wrong';
   static const errorBody = 'Please try again.';
+  static const genericError = 'Something went wrong. Please try again.';
+  static const cameraDead =
+      'The camera stopped responding. Please check camera permission in '
+      'Settings and try again.';
+  static const cameraStarting = 'Starting camera…';
+  static const torchLabel = 'Flashlight';
+  static const torchComingSoon = 'Torch arrives in the next build';
 }

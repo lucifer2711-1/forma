@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/motion.dart';
 
-/// Circular progress ring â€” 3pt accent stroke, rounded caps.
+/// Circular progress ring — 3pt accent stroke, rounded caps.
 ///
-/// Per design.md Â§3.4: animates between values with an eased curve.
+/// Per design.md §3.4: animates between values with an eased curve.
 class ProgressRing extends StatelessWidget {
   /// Creates a progress ring. [progress] must be between 0 and 1.
   const ProgressRing({

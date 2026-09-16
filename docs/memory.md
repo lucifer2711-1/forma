@@ -83,7 +83,8 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
 ## Platform Bridge Contract (architecture.md §3)
 - MethodChannel `com.forma.app/native`: isScanSupported, hasLiDAR,
   startCapture→scanId, beginCapturing, finishCapture, cancelCapture,
-  startReconstruction, exportModel{scanId,format}.
+  startReconstruction, exportModel{scanId,format},
+  hasActiveCaptureSession→bool.
 - EventChannel `com.forma.app/capture_events`: payloads `{"type": …,
   "value": …}` — phase / feedback / reconstruction_progress /
   reconstruction_complete / error{code,message}.
@@ -124,3 +125,4 @@ Then Phase 2: capture screen with ObjectCaptureView platform view.
 | 3 | 2026-09-14 | GitHub repo created (public), CI green: 24 tests (Linux) + unsigned IPA (macOS, Sideloadly-ready artifact). API verified via Apple docs + SDK probe. beginCapturing added to bridge contract | Sideloadly device install on iPhone 16 Pro Max; then Phase 2 |
 | 4 | 2026-09-15 | First device test findings: blank capture screen (no camera preview), silent ~25% reconstruction failures, stale VM state after a finished scan. Shipped Phase 1.5: native ObjectCaptureView platform view (ScanViewportController + CapturePreviewView), capture VM reset + honest errors, os_log diagnostics (CameraDebugLogger), hasActiveCaptureSession probe | Rebuild IPA in CI → device retest: camera visible, guidance pill live, failure reason visible in logs |
 | 5 | 2026-09-15 | Retest of 1.5 build: ALL capture-screen buttons dead (overlay was wrapped in IgnorePointer — only library FAB worked) + preview still black. Fixes: IgnorePointer removed (error layer now separate opaque branch), hosted view sized from Flutter frame + autoresizing, UIHostingController appearance lifecycle kicked manually, camera-authorization os_log. CI Swift-fix loop (3 runs) → green | Sideloadly update install → retest buttons + camera |
+| 6 | 2026-09-16 | Camera-health hardening: `hasActiveCaptureSession` added to NativeBridge contract + IosNativeBridge; CaptureViewModel watchdog (8s, injectable) probes session on silence → honest camera-dead error + CameraHealthOverlay (starting/dead states); UnknownError for unmapped PlatformException codes; ScanCard async image loading; ExportService relaunch-safe via canonical model path fallback; strings centralized; mojibake/BOM cleaned; 27 tests green | Rebuild IPA in CI → device retest |

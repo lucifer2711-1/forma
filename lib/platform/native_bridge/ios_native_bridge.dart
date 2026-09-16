@@ -108,7 +108,7 @@ class IosNativeBridge implements NativeBridge {
       'RECONSTRUCT' => ReconstructionError(debug),
       'EXPORT' => ExportError(debug),
       'STORE' => StoreError(debug),
-      _ => CaptureError(debug),
+      _ => UnknownError(debug),
     };
   }
 
@@ -181,6 +181,18 @@ class IosNativeBridge implements NativeBridge {
   Stream<BridgeError> get errorUpdates {
     _ensureSubscribed();
     return _errorController.stream;
+  }
+
+  @override
+  Future<bool> hasActiveCaptureSession() async {
+    try {
+      return await _commands.invokeMethod<bool>('hasActiveCaptureSession') ??
+          false;
+    } on PlatformException catch (e) {
+      throw _mapError(e);
+    } on MissingPluginException {
+      throw const UnsupportedDeviceError('Native module not registered');
+    }
   }
 
   @override
