@@ -149,7 +149,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
         state = state.copyWith(
           isReconstructing: false,
           isSessionStarting: false,
-          error: Strings.genericError,
+          error: _messageFor(error.code),
         );
       }));
   }
@@ -158,11 +158,13 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     _resetWatchdog();
     AppHaptics.stateChange();
     if (phase == CapturePhase.failed) {
+      // A specific error event (storage, permission) may already have set
+      // the honest reason — don't overwrite it with the generic message.
       state = state.copyWith(
         isReconstructing: false,
         isSessionStarting: false,
         isCameraLive: false,
-        error: Strings.genericError,
+        error: state.error ?? Strings.genericError,
       );
       return;
     }
@@ -339,6 +341,13 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     await cancel();
     await start();
   }
+
+  /// Honest, actionable message per native error code (rules.md §7).
+  String _messageFor(int code) => switch (code) {
+        1005 => Strings.cameraPermissionDenied,
+        1007 => Strings.storageFull,
+        _ => Strings.genericError,
+      };
 }
 
 /// Riverpod provider for the capture flow.

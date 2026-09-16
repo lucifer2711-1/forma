@@ -52,6 +52,17 @@ class CameraTimeoutError extends FormaError {
         );
 }
 
+/// The device has less free space than Object Capture requires (~4 GB,
+/// native code 1007). Apple fails the session instantly below that.
+class StorageFullError extends FormaError {
+  const StorageFullError([String? debug])
+      : super(
+          'Not enough free space to scan. Free up at least 4 GB and try '
+          'again.',
+          debugMessage: debug,
+        );
+}
+
 /// PhotogrammetrySession failed.
 class ReconstructionError extends FormaError {
   const ReconstructionError([String? debug])

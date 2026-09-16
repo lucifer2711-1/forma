@@ -37,6 +37,10 @@ abstract final class Strings {
   static const errorTitle = 'Something went wrong';
   static const errorBody = 'Please try again.';
   static const genericError = 'Something went wrong. Please try again.';
+  static const cameraPermissionDenied =
+      'Forma needs camera access to scan. Enable it in Settings.';
+  static const storageFull =
+      'Not enough free space to scan. Free up at least 4 GB and try again.';
   static const cameraDead =
       'The camera stopped responding. Please check camera permission in '
       'Settings and try again.';

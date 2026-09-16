@@ -96,6 +96,33 @@ void main() {
     expect(vm.state.error, 'Something went wrong. Please try again.');
   });
 
+  test('storage error event shows the storage message', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    await vm.start();
+    await emitFormaEvent({
+      'type': 'error',
+      'value': {'code': 1007, 'message': 'insufficientStorage'},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.error, Strings.storageFull);
+  });
+
+  test('failed phase does not overwrite a specific error', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    await vm.start();
+    await emitFormaEvent({
+      'type': 'error',
+      'value': {'code': 1007, 'message': 'insufficientStorage'},
+    });
+    await emitFormaEvent({'type': 'phase', 'value': 'failed'});
+    await pumpEventQueue();
+
+    expect(vm.state.error, Strings.storageFull);
+  });
+
   test('cancel resets to idle', () async {
     final vm = container.read(captureViewModelProvider.notifier);
 

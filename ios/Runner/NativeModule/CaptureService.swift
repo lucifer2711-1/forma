@@ -240,7 +240,18 @@ final class CaptureService {
         CameraDebugLogger.capture.error(
           "capture failed (scan \(scanId, privacy: .public)): \(error.localizedDescription, privacy: .public)"
         )
-        events.emitError(code: 1001, message: error.localizedDescription)
+        // Object Capture hard-requires ~4 GB free; below that the session
+        // fails instantly with .insufficientStorage (device log 2026-09-17:
+        // 3.43 GB free → failed before the first frame). Surface it
+        // specifically so the UI can tell the user what to do.
+        if case .insufficientStorage = error {
+          events.emitError(
+            code: 1007,
+            message: "Not enough free space on this iPhone."
+          )
+        } else {
+          events.emitError(code: 1001, message: error.localizedDescription)
+        }
       }
     default:
       break
