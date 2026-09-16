@@ -16,6 +16,7 @@ class CameraHealthOverlay extends StatelessWidget {
   const CameraHealthOverlay({
     required this.isCameraLive,
     required this.isSessionStarting,
+    this.isTrackingInitializing = false,
     super.key,
   });
 
@@ -24,6 +25,10 @@ class CameraHealthOverlay extends StatelessWidget {
 
   /// Whether startCapture() is still awaiting its first phase event.
   final bool isSessionStarting;
+
+  /// Whether the session exists but ARKit tracking hasn't locked yet —
+  /// lighting/texture guidance, not an error.
+  final bool isTrackingInitializing;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +52,25 @@ class CameraHealthOverlay extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      );
+    }
+    if (isTrackingInitializing) {
+      // The camera is alive; tracking just hasn't locked. Guide instead
+      // of erroring (device test 2026-09-17).
+      return ColoredBox(
+        color: Colors.black.withValues(alpha: 0.45),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xxl),
+            child: Text(
+              Strings.trackingInitializing,
+              textAlign: TextAlign.center,
+              style: AppTypography.body.copyWith(
+                color: colors.textPrimary,
+              ),
+            ),
           ),
         ),
       );

@@ -80,6 +80,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
           CameraHealthOverlay(
             isCameraLive: state.isCameraLive,
             isSessionStarting: state.isSessionStarting,
+            isTrackingInitializing: state.isTrackingInitializing,
           ),
           _buildOverlay(state),
         ],
@@ -154,9 +155,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       return ReconstructionPanel(progress: state.reconstructionProgress);
     }
     // The "Starting camera…" scrim owns the center while the session
-    // spins up — showing the hint pill on top of it overlapped the text
-    // (device test 2026-09-16).
-    if (state.isSessionStarting && !state.isCameraLive) {
+    // spins up, and the tracking-guidance layer owns it while ARKit
+    // hasn't locked — the hint pill overlapped both (device tests
+    // 2026-09-16/17).
+    if ((state.isSessionStarting || state.isTrackingInitializing) &&
+        !state.isCameraLive) {
       return const SizedBox.shrink();
     }
     final colors = FormaColors.of(context);

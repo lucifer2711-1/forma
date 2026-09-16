@@ -35,6 +35,11 @@ abstract interface class NativeBridge {
   /// probe used by the capture watchdog).
   Future<bool> hasActiveCaptureSession();
 
+  /// The native capture session's current phase name, or "none" when no
+  /// session exists. Distinguishes a dead session from one still waiting
+  /// for ARKit tracking to initialize (lighting/texture guidance case).
+  Future<String> getSessionState();
+
   /// Continuous capture phase updates.
   Stream<CapturePhase> get phaseUpdates;
 

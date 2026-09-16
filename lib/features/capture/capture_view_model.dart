@@ -31,6 +31,7 @@ class CaptureUiState {
     this.isCompleted = false,
     this.isCameraLive = false,
     this.isSessionStarting = false,
+    this.isTrackingInitializing = false,
     this.error,
   });
 
@@ -57,6 +58,10 @@ class CaptureUiState {
   /// distinguish "starting camera" from "camera dead".
   final bool isSessionStarting;
 
+  /// True when the native session exists but ARKit tracking hasn't locked
+  /// yet (poor lighting/texture). Guidance case — not an error.
+  final bool isTrackingInitializing;
+
   /// User-facing error message; null when healthy.
   final String? error;
 
@@ -71,6 +76,7 @@ class CaptureUiState {
     bool? isCompleted,
     bool? isCameraLive,
     bool? isSessionStarting,
+    bool? isTrackingInitializing,
     String? error,
     bool clearError = false,
   }) {
@@ -83,6 +89,8 @@ class CaptureUiState {
       isCompleted: isCompleted ?? this.isCompleted,
       isCameraLive: isCameraLive ?? this.isCameraLive,
       isSessionStarting: isSessionStarting ?? this.isSessionStarting,
+      isTrackingInitializing:
+          isTrackingInitializing ?? this.isTrackingInitializing,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -174,18 +182,21 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       phase: phase,
       isCameraLive: true,
       isSessionStarting: false,
+      isTrackingInitializing: false,
       clearError: true,
     );
   }
 
   /// Arms the watchdog: if no native event arrives within
-  /// [_cameraWatchdogTimeout], probe the session and surface an honest
-  /// "camera dead" error instead of a frozen black preview.
-  ///
-  /// One-shot by design: every real native event re-arms it, and a
-  /// successful probe means the session is alive (self re-arming would
-  /// create an endless timer chain). If the probe errors — bridge
-  /// unavailable — treat the camera as dead, honestly.
+  /// [_cameraWatchdogTimeout], probe the session state and react honestly:
+  /// - still `.initializing` → tracking hasn't locked (lighting/texture);
+  ///   show guidance, NOT an error — the camera is alive (device test
+  ///   2026-09-17: frames flowing at 30 Hz, tracking "not normal",
+  ///   session parked in .initializing; the old probe called this dead
+  ///   and blamed a permission the user had already granted).
+  /// - any other live phase → events stalled; mark the camera live.
+  /// - no session / failed → surface the honest camera-dead error.
+  /// One-shot per arm; every real native event re-arms it.
   void _resetWatchdog() {
     _watchdog?.cancel();
     if (_scanId == null || _disposed) {
@@ -195,13 +206,31 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       if (_disposed || _scanId == null) {
         return;
       }
-      var alive = false;
+      var stateName = 'none';
       try {
-        alive = await _bridge.hasActiveCaptureSession();
+        stateName = await _bridge.getSessionState();
       } on FormaError catch (e) {
         debugPrint('[forma] camera probe failed: ${e.debugMessage}');
       }
-      if (_disposed || _scanId == null || alive) {
+      if (_disposed || _scanId == null) {
+        return;
+      }
+      if (stateName == 'initializing') {
+        state = state.copyWith(
+          isSessionStarting: false,
+          isCameraLive: false,
+          isTrackingInitializing: true,
+        );
+        return;
+      }
+      if (stateName != 'none' && stateName != 'failed') {
+        // Session alive in a real phase but the event stream stalled.
+        state = state.copyWith(
+          isSessionStarting: false,
+          isCameraLive: true,
+          isTrackingInitializing: false,
+          clearError: true,
+        );
         return;
       }
       AppHaptics.error();

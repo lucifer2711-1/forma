@@ -102,7 +102,7 @@ final class CaptureService {
     let session = ObjectCaptureSession()
     session.start(imagesDirectory: imagesDirectory)
     CameraDebugLogger.capture.info(
-      "capture session created (scan \(scanId, privacy: .public))"
+      "capture session created (scan \(scanId, privacy: .public)) — awaiting state machine"
     )
     self.session = session
     self.scanId = scanId
@@ -220,6 +220,12 @@ final class CaptureService {
   // MARK: Event handling
 
   private func handle(_ state: ObjectCaptureSession.CaptureState) {
+    // Every transition is logged so a stuck session can be diagnosed from
+    // the device log alone (device test 2026-09-17: session alive, frames
+    // flowing, but tracking "not normal" → no .ready, UI stuck starting).
+    CameraDebugLogger.capture.info(
+      "capture state → \(Self.phaseName(state), privacy: .public)"
+    )
     viewport?.forwardPhase(Self.phaseName(state))
     switch state {
     case .ready:
@@ -269,7 +275,9 @@ final class CaptureService {
     }
   }
 
-  private static func phaseName(
+  /// Maps a capture state to the wire-contract phase name. Internal (not
+  /// private) so the viewport controller can answer session-state probes.
+  static func phaseName(
     _ state: ObjectCaptureSession.CaptureState
   ) -> String {
     switch state {

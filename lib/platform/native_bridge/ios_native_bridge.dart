@@ -189,6 +189,10 @@ class IosNativeBridge implements NativeBridge {
   }
 
   @override
+  Future<String> getSessionState() async =>
+      await _invoke<String>('getSessionState') ?? 'none';
+
+  @override
   Future<bool> hasActiveCaptureSession() async {
     try {
       return await _commands.invokeMethod<bool>('hasActiveCaptureSession') ??

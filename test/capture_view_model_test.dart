@@ -136,8 +136,8 @@ void main() {
   test('phase events mark the camera live and a live probe keeps it',
       () async {
     mockFormaMethods((call) async {
-      if (call.method == 'hasActiveCaptureSession') {
-        return true;
+      if (call.method == 'getSessionState') {
+        return 'ready';
       }
       if (call.method == 'startCapture') {
         return 'scan-1';
@@ -174,8 +174,8 @@ void main() {
 
   test('watchdog surfaces an honest camera-dead error', () async {
     mockFormaMethods((call) async {
-      if (call.method == 'hasActiveCaptureSession') {
-        return false;
+      if (call.method == 'getSessionState') {
+        return 'none';
       }
       if (call.method == 'startCapture') {
         return 'scan-1';
@@ -200,6 +200,38 @@ void main() {
 
     expect(vm.state.isCameraLive, isFalse);
     expect(vm.state.error, Strings.cameraDead);
+  });
+
+  test('watchdog shows tracking guidance while session is initializing',
+      () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'initializing';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // Session alive but ARKit tracking hasn't locked — guidance, not an
+    // error (device log 2026-09-17: frames flowing, tracking not normal).
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.isTrackingInitializing, isTrue);
+    expect(vm.state.isSessionStarting, isFalse);
+    expect(vm.state.error, isNull);
   });
 
   test('startCapture timeout surfaces an honest wedged-camera error',

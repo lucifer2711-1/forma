@@ -47,6 +47,18 @@ final class ScanViewportController: NSObject {
     return session.state != .initializing
   }
 
+  /// The session's current state as a contract string, or "none" when no
+  /// session exists. Lets Dart distinguish "camera dead" from "tracking
+  /// hasn't initialized yet" — the latter needs lighting guidance, not an
+  /// error (device test 2026-09-17: frames flowing, tracking "not normal",
+  /// session parked in .initializing for the whole screen session).
+  var sessionStateName: String {
+    guard let session else {
+      return "none"
+    }
+    return CaptureService.phaseName(session.state)
+  }
+
   /// Registers the platform view's renderer and binds any live session.
   func setPreview(_ preview: CapturePreviewRenderer) {
     self.preview = preview

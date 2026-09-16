@@ -47,6 +47,8 @@ abstract final class Strings {
   static const cameraStarting = 'Starting camera…';
   static const cameraDidNotStart =
       'The camera did not start. Close and reopen the app, then try again.';
+  static const trackingInitializing =
+      'Point at a well-lit, textured surface — the camera is warming up.';
   static const torchLabel = 'Flashlight';
   static const torchComingSoon = 'Torch arrives in the next build';
 }
