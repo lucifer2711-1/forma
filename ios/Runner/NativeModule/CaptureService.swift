@@ -58,11 +58,21 @@ final class CaptureService {
   // MARK: Session lifecycle
 
   /// Starts a capture session for a new scan; returns the scan id.
+  ///
+  /// Restart semantics: every `startCapture()` call yields a fresh,
+  /// usable session. Any previous session — wedged in `.initializing`,
+  /// orphaned after a Dart-side timeout, or left over from a re-entered
+  /// start — is torn down first instead of stacking a second camera
+  /// session on top of it (device-test finding 2026-09-16: stacked
+  /// sessions fight over the camera, feed stays black, later taps
+  /// crash inside the invalid state machine).
   func start() async throws -> String {
     // Apple requires an explicit requestAccess before the session can use
     // the camera. With .notDetermined, ObjectCaptureSession.start() wedges
     // in .initializing forever — no frames, no phase events, black preview
     // (device-test finding 2026-09-16). Ask, then fail honestly.
+    // Note: a re-signed update install (Sideloadly) resets the TCC grant,
+    // so this dialog legitimately reappears after an update.
     let granted = await AVCaptureDevice.requestAccess(for: .video)
     if !granted {
       CameraDebugLogger.capture.error("camera permission denied by user")
@@ -72,6 +82,18 @@ final class CaptureService {
         message: "Camera permission denied"
       )
     }
+
+    // Tear down any previous session before creating a new one. There is
+    // no explicit stop API: resuming pending completion waiters, cancelling
+    // the event tasks, and dropping every reference deallocates the
+    // session and frees the camera.
+    if let previousScanId = scanId {
+      CameraDebugLogger.capture.error(
+        "start re-entered — replacing previous capture session"
+      )
+      cancel(scanId: previousScanId)
+    }
+
     let scanId = UUID().uuidString
     let imagesDirectory = try FormaStorage.makeScanImagesDirectory(
       scanId: scanId
@@ -79,6 +101,9 @@ final class CaptureService {
 
     let session = ObjectCaptureSession()
     session.start(imagesDirectory: imagesDirectory)
+    CameraDebugLogger.capture.info(
+      "capture session created (scan \(scanId, privacy: .public))"
+    )
     self.session = session
     self.scanId = scanId
     imagesDirectories[scanId] = imagesDirectory
@@ -101,6 +126,10 @@ final class CaptureService {
   }
 
   /// Moves the session from detection into image capture.
+  ///
+  /// `startCapturing()` is only legal from `.detecting` — calling it on a
+  /// wedged/`.initializing` session traps inside the session's state
+  /// machine and kills the app. Throw an honest error instead.
   func beginCapturing(scanId: String) throws {
     guard let session, scanId == self.scanId else {
       throw FormaNativeError(
@@ -109,10 +138,25 @@ final class CaptureService {
         message: "No active capture session for scan \(scanId)"
       )
     }
-    session.startCapturing()
+    switch session.state {
+    case .detecting, .capturing:
+      session.startCapturing()
+    default:
+      CameraDebugLogger.capture.error(
+        "beginCapturing rejected in state \(String(describing: session.state), privacy: .public)"
+      )
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1006,
+        message: "Capture session is not ready yet — try again in a moment"
+      )
+    }
   }
 
   /// Requests the session to finish; images flush asynchronously.
+  ///
+  /// Same state guard as `beginCapturing`: `finish()` is only legal once
+  /// images are being captured.
   func finish(scanId: String) throws {
     guard let session, scanId == self.scanId else {
       throw FormaNativeError(
@@ -121,7 +165,19 @@ final class CaptureService {
         message: "No active capture session for scan \(scanId)"
       )
     }
-    session.finish()
+    switch session.state {
+    case .capturing, .finishing:
+      session.finish()
+    default:
+      CameraDebugLogger.capture.error(
+        "finish rejected in state \(String(describing: session.state), privacy: .public)"
+      )
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1006,
+        message: "Capture session is not capturing yet"
+      )
+    }
   }
 
   /// Cancels a scan: stops event tasks and deletes its files.

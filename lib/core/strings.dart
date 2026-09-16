@@ -41,6 +41,8 @@ abstract final class Strings {
       'The camera stopped responding. Please check camera permission in '
       'Settings and try again.';
   static const cameraStarting = 'Starting camera…';
+  static const cameraDidNotStart =
+      'The camera did not start. Close and reopen the app, then try again.';
   static const torchLabel = 'Flashlight';
   static const torchComingSoon = 'Torch arrives in the next build';
 }

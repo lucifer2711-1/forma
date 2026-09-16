@@ -6,9 +6,21 @@ import 'package:forma/core/models/scan.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/theme.dart';
+import 'package:forma/features/capture/capture_view_model.dart';
 import 'package:forma/features/library/library_screen.dart';
 
 import 'scan_repository_memory.dart';
+
+/// Capture VM that never touches platform channels — the navigation test
+/// must not arm real watchdog/timeout timers against the real bridge
+/// (a pending timer trips flutter_test's teardown invariant).
+class _NoopCaptureViewModel extends CaptureViewModel {
+  @override
+  CaptureUiState build() => const CaptureUiState();
+
+  @override
+  Future<void> start() async {}
+}
 
 Scan _scan(String id, String name) => Scan(
       id: id,
@@ -31,6 +43,7 @@ Future<void> _pump(
               ? const AsyncValue.data(true)
               : const AsyncValue.data(false),
         ),
+        captureViewModelProvider.overrideWith(_NoopCaptureViewModel.new),
       ],
       child: MaterialApp(
         theme: buildFormaTheme(Brightness.light),

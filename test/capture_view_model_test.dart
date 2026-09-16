@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,7 +13,10 @@ import 'scan_repository_memory.dart';
 /// Capture view model with a short watchdog so tests stay fast.
 class TestCaptureViewModel extends CaptureViewModel {
   TestCaptureViewModel()
-      : super(watchdogTimeout: const Duration(milliseconds: 120));
+      : super(
+          watchdogTimeout: const Duration(milliseconds: 120),
+          startCaptureTimeout: const Duration(milliseconds: 200),
+        );
 }
 
 void main() {
@@ -168,5 +173,63 @@ void main() {
 
     expect(vm.state.isCameraLive, isFalse);
     expect(vm.state.error, Strings.cameraDead);
+  });
+
+  test('startCapture timeout surfaces an honest wedged-camera error',
+      () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'startCapture') {
+        // Dropped reply: never completes.
+        await Completer<void>().future;
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    unawaited(vm.start());
+
+    // Outlast the injected 200 ms start timeout.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.isSessionStarting, isFalse);
+    expect(vm.state.error, Strings.cameraDidNotStart);
+  });
+
+  test('a second start() while one is in flight is ignored', () async {
+    var startCalls = 0;
+    mockFormaMethods((call) async {
+      if (call.method == 'startCapture') {
+        startCalls++;
+        // Hold the first call open long enough for a second tap.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await Future.wait([vm.start(), vm.start()]);
+    await pumpEventQueue();
+
+    expect(startCalls, 1);
+    // Exactly one native session must exist; the second tap changed
+    // nothing. isSessionStarting stays true until the first phase event
+    // arrives (the feed is not confirmed live yet) — that's by design.
+    expect(vm.state.error, isNull);
   });
 }

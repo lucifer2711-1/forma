@@ -41,6 +41,17 @@ class CameraPermissionError extends FormaError {
         );
 }
 
+/// The native session never answered within the start timeout — the
+/// camera is declared wedged instead of hanging on "Starting camera…".
+class CameraTimeoutError extends FormaError {
+  const CameraTimeoutError([String? debug])
+      : super(
+          'The camera did not start. Close and reopen the app, then try '
+          'again.',
+          debugMessage: debug,
+        );
+}
+
 /// PhotogrammetrySession failed.
 class ReconstructionError extends FormaError {
   const ReconstructionError([String? debug])

@@ -15,6 +15,12 @@ import 'package:forma/platform/native_bridge/native_bridge.dart';
 /// probes (and later declares dead) the native camera preview.
 const _cameraWatchdogTimeout = Duration(seconds: 8);
 
+/// How long startCapture() may take before the session is declared wedged.
+/// Without this, a dropped method-channel reply leaves the screen on
+/// "Starting camera…" forever with no way to recover (device-test finding
+/// 2026-09-16: update-install retest).
+const _startCaptureTimeout = Duration(seconds: 20);
+
 /// Immutable UI state for the capture flow.
 class CaptureUiState {
   const CaptureUiState({
@@ -85,17 +91,25 @@ class CaptureUiState {
 /// Drives the capture screen through the [NativeBridge] and persists the
 /// finished scan.
 class CaptureViewModel extends Notifier<CaptureUiState> {
-  CaptureViewModel({this.watchdogTimeout = _cameraWatchdogTimeout});
+  CaptureViewModel({
+    this.watchdogTimeout = _cameraWatchdogTimeout,
+    this.startCaptureTimeout = _startCaptureTimeout,
+  });
 
   /// How long the session may stay silent before the camera-health probe
   /// runs. Tests inject a short value to keep them fast.
   final Duration watchdogTimeout;
+
+  /// How long startCapture() may run before it is declared wedged. Tests
+  /// inject a short value to keep them fast.
+  final Duration startCaptureTimeout;
 
   late NativeBridge _bridge;
   final _subs = <StreamSubscription<dynamic>>[];
   Timer? _watchdog;
   String? _scanId;
   bool _capturingRequested = false;
+  bool _startingSession = false;
   bool _disposed = false;
   int _sessionStartGeneration = 0;
 
@@ -225,17 +239,30 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   }
 
   /// Starts a new capture session.
+  ///
+  /// Re-entrancy safe: the native permission dialog blocks startCapture()
+  /// for as long as the dialog is on screen, and during that window the
+  /// pulsing Start button stays tappable — a second start() here used to
+  /// stack a second native session on top of the pending one and wedged
+  /// the screen (device-test finding 2026-09-16). Guarded, and the call
+  /// itself times out so a dropped reply can never hang the UI forever.
   Future<void> start() async {
-    if (_scanId != null) {
+    if (_scanId != null || _startingSession) {
       return;
     }
+    _startingSession = true;
     // Fresh session — clear any stale phase/feedback/error left over.
     state = const CaptureUiState(isSessionStarting: true);
     final generation = ++_sessionStartGeneration;
     try {
       _capturingRequested = false;
-      _scanId = await _bridge.startCapture();
-      if (generation != _sessionStartGeneration) {
+      _scanId = await _bridge.startCapture().timeout(
+            startCaptureTimeout,
+            onTimeout: () => throw const CameraTimeoutError(
+              'startCapture exceeded the start timeout',
+            ),
+          );
+      if (generation != _sessionStartGeneration || _disposed) {
         return; // A newer start()/cancel() superseded this one.
       }
       // Session created natively; if the first phase event never arrives
@@ -247,6 +274,8 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
         isSessionStarting: false,
         error: e.userMessage,
       );
+    } finally {
+      _startingSession = false;
     }
   }
 
