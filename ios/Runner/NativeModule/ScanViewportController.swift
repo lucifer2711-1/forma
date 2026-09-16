@@ -72,6 +72,17 @@ final class ScanViewportController: NSObject {
     events.emitPhase(name)
   }
 
+  /// Re-emits the session's current phase into a freshly attached sink.
+  ///
+  /// Dart needs the truth even when the transition itself was emitted before
+  /// its listener existed (see `FormaEventSink.onListenHandler`).
+  func replayCurrentPhase() {
+    guard let session else {
+      return
+    }
+    events.emitPhase(CaptureService.phaseName(session.state))
+  }
+
   /// Forwards a guidance feedback name to the Dart event channel.
   func forwardFeedback(_ name: String) {
     events.emitFeedback(name)

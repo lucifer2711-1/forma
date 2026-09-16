@@ -41,6 +41,11 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     let events = FormaEventSink()
     let exportService = ExportService()
     let viewport = ScanViewportController(events: events)
+    // Replay the live session phase whenever Dart (re)subscribes, so a
+    // transition that raced ahead of the listener is not lost for good.
+    events.onListenHandler = { [weak viewport] in
+      viewport?.replayCurrentPhase()
+    }
     let handler = FormaChannelHandler(
       events: events,
       exportService: exportService,

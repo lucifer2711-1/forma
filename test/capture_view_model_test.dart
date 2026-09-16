@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/platform/native_bridge/capture_state.dart';
 
 import 'native_channel_mock.dart';
 import 'scan_repository_memory.dart';
@@ -268,46 +269,21 @@ void main() {
     expect(vm.state.error, Strings.cameraDidNotStart);
   });
 
-  test('an early capture tap is queued until the session is detecting',
+  test('a capture tap is asked of the session even with no phase heard',
       () async {
-    mockFormaMethods((call) async {
-      calls.add(call.method);
-      if (call.method == 'getSessionState') {
-        return 'initializing';
-      }
-      if (call.method == 'startCapture') {
-        return 'scan-1';
-      }
-      return null;
-    });
-    final testContainer = ProviderContainer(
-      overrides: [
-        scanRepositoryProvider.overrideWithValue(repo),
-        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
-      ],
-    );
-    addTearDown(testContainer.dispose);
-
-    final vm = testContainer.read(captureViewModelProvider.notifier);
+    final vm = container.read(captureViewModelProvider.notifier);
     await vm.start();
 
-    // Tapped while the camera is still warming up — the tap must be kept,
-    // not turned into a "Capture failed." error.
+    // Dart heard no phase event, but the native session is the authority on
+    // whether it can capture — the tap must still reach it (device-test
+    // finding 2026-09-17: gating on a mirrored phase made taps no-ops).
     await vm.beginCapturing();
-    await pumpEventQueue();
-
-    expect(calls, isNot(contains('beginCapturing')));
-    expect(vm.state.error, isNull);
-
-    // The moment the session is ready, the queued capture starts.
-    await emitFormaEvent({'type': 'phase', 'value': 'detecting'});
-    await pumpEventQueue();
 
     expect(calls, contains('beginCapturing'));
     expect(vm.state.error, isNull);
   });
 
-  test('a native not-ready rejection is retried instead of surfaced',
+  test('a not-ready rejection stays pending and is retried, not surfaced',
       () async {
     var beginCalls = 0;
     mockFormaMethods((call) async {
@@ -320,7 +296,7 @@ void main() {
       if (call.method == 'beginCapturing') {
         beginCalls++;
         if (beginCalls == 1) {
-          // Native guard: session not in .detecting yet (code 1006).
+          // Native guard: session not accepting capture yet (code 1006).
           throw PlatformException(code: 'CAPTURE', details: 1006);
         }
         return null;
@@ -342,13 +318,61 @@ void main() {
 
     await vm.beginCapturing();
     await pumpEventQueue();
+
+    // The tap is visibly pending, not an error.
+    expect(vm.state.isCapturePending, isTrue);
     expect(vm.state.error, isNull);
 
-    // The queued retry fires and the capture starts after all.
+    // The retry fires and the session accepts the capture.
     await Future<void>.delayed(const Duration(milliseconds: 400));
     await pumpEventQueue();
 
     expect(beginCalls, 2);
+    expect(vm.state.error, isNull);
+  });
+
+  test('a confirmed capture clears the pending tap', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await vm.beginCapturing();
+    expect(vm.state.isCapturePending, isTrue);
+
+    await emitFormaEvent({'type': 'phase', 'value': 'capturing'});
+    await pumpEventQueue();
+
+    expect(vm.state.isCapturePending, isFalse);
+    expect(vm.state.phase, CapturePhase.capturing);
+  });
+
+  test('the watchdog adopts the session state when an event was missed',
+      () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'detecting';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // No phase event ever reaches Dart, but the session is detecting — the
+    // probe must reconcile the UI instead of leaving it stale.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.phase, CapturePhase.detecting);
+    expect(vm.state.isCameraLive, isTrue);
     expect(vm.state.error, isNull);
   });
 

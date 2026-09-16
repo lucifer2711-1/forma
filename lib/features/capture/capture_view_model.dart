@@ -25,6 +25,10 @@ const _startCaptureTimeout = Duration(seconds: 20);
 /// session rejected as "not ready yet".
 const _captureRetryDelay = Duration(milliseconds: 300);
 
+/// How many times a capture request may be retried while the session warms
+/// up (~2 s) before the refusal is reported.
+const _maxCaptureRetries = 6;
+
 /// Immutable UI state for the capture flow.
 class CaptureUiState {
   const CaptureUiState({
@@ -36,6 +40,7 @@ class CaptureUiState {
     this.isCameraLive = false,
     this.isSessionStarting = false,
     this.isTrackingInitializing = false,
+    this.isCapturePending = false,
     this.error,
   });
 
@@ -66,6 +71,10 @@ class CaptureUiState {
   /// yet (poor lighting/texture). Guidance case — not an error.
   final bool isTrackingInitializing;
 
+  /// A capture tap has been sent but the session has not confirmed it yet.
+  /// Keeps a tap visible in the UI while it is being retried.
+  final bool isCapturePending;
+
   /// User-facing error message; null when healthy.
   final String? error;
 
@@ -81,6 +90,7 @@ class CaptureUiState {
     bool? isCameraLive,
     bool? isSessionStarting,
     bool? isTrackingInitializing,
+    bool? isCapturePending,
     String? error,
     bool clearError = false,
   }) {
@@ -95,6 +105,7 @@ class CaptureUiState {
       isSessionStarting: isSessionStarting ?? this.isSessionStarting,
       isTrackingInitializing:
           isTrackingInitializing ?? this.isTrackingInitializing,
+      isCapturePending: isCapturePending ?? this.isCapturePending,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -124,10 +135,6 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   bool _capturingRequested = false;
   bool _startingSession = false;
   bool _disposed = false;
-
-  /// A capture tap that arrived before the session was ready to accept it.
-  /// Honoured as soon as the session reaches `.detecting`.
-  bool _pendingCaptureRequest = false;
   int _sessionStartGeneration = 0;
 
   @override
@@ -195,6 +202,12 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       isTrackingInitializing: false,
       clearError: true,
     );
+    if (phase == CapturePhase.capturing) {
+      // Capture is running: the CTA becomes Finish and no retry is needed.
+      _captureRetry?.cancel();
+      state = state.copyWith(isCapturePending: false);
+      return;
+    }
     // A tap made while the session was still warming up starts capturing
     // the moment Object Capture says it is ready.
     _flushPendingCapture();
@@ -202,7 +215,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
 
   /// Fires a capture tap the user made before the session was ready.
   void _flushPendingCapture() {
-    if (!_pendingCaptureRequest || _capturingRequested) {
+    if (!state.isCapturePending || _capturingRequested) {
       return;
     }
     if (state.phase != CapturePhase.detecting) {
@@ -248,13 +261,23 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
         return;
       }
       if (stateName != 'none' && stateName != 'failed') {
-        // Session alive in a real phase but the event stream stalled.
+        // Session alive in a real phase but the event stream stalled — or a
+        // transition fired before Dart was listening. Adopt what the session
+        // reports so the UI can never stay stale about what it may offer.
+        final probed = _phaseFromName(stateName);
+        final isCapturing = probed == CapturePhase.capturing ||
+            probed == CapturePhase.finishing ||
+            probed == CapturePhase.completed;
         state = state.copyWith(
-          isSessionStarting: false,
+          phase: probed,
           isCameraLive: true,
+          isSessionStarting: false,
           isTrackingInitializing: false,
+          // A confirmed capture is never still "pending".
+          isCapturePending: isCapturing ? false : null,
           clearError: true,
         );
+        _flushPendingCapture();
         return;
       }
       AppHaptics.error();
@@ -274,7 +297,6 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     debugPrint('[forma] scan $id completed → $modelPath');
     _watchdog?.cancel();
     _captureRetry?.cancel();
-    _pendingCaptureRequest = false;
     final now = DateTime.now();
     await ref.read(scanRepositoryProvider).save(
           Scan(
@@ -286,7 +308,11 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
             modelPath: modelPath,
           ),
         );
-    state = state.copyWith(isReconstructing: false, isCompleted: true);
+    state = state.copyWith(
+      isReconstructing: false,
+      isCompleted: true,
+      isCapturePending: false,
+    );
     // Clear the scan bookkeeping so the NEXT session can start; the UI
     // state itself stays "completed" until the screen pops and start()
     // resets it. (Device-test finding 2026-09-15: reopening capture must
@@ -347,54 +373,51 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
 
   /// Advances the active session from detection into image capture.
   ///
-  /// Object Capture only accepts `startCapturing()` from the session's
-  /// `.detecting` state, which lands a beat after the camera warms up — so
-  /// tapping "Start Capture" early is a normal user action, not a failure.
-  /// The tap is remembered and honoured as soon as the session is ready,
-  /// instead of surfacing a raw "Capture failed." (device-test finding
-  /// 2026-09-17: an early tap looked like the capture was broken).
-  Future<void> beginCapturing({bool canQueue = true}) async {
+  /// The native session owns this decision — it is the only thing that knows
+  /// its real state, and its guard is what stops `startCapturing()` from
+  /// trapping the app. Dart therefore asks and reacts, instead of gating on a
+  /// mirrored phase that can be stale (device-test finding 2026-09-17: a
+  /// missed startup phase event left every tap a silent no-op).
+  ///
+  /// "Not ready yet" (native code 1006) is a timing answer, not a failure:
+  /// the request is retried briefly, and the CTA shows "Getting ready…" in
+  /// the meantime so the tap is never invisible.
+  Future<void> beginCapturing({int attempt = 1}) async {
     final id = _scanId;
     if (id == null || _capturingRequested) {
       return;
     }
-    if (state.phase != CapturePhase.detecting) {
-      _queueCaptureRequest();
-      return;
-    }
-    _pendingCaptureRequest = false;
     try {
       _capturingRequested = true;
+      state = state.copyWith(isCapturePending: true, clearError: true);
       await _bridge.beginCapturing(id);
       _resetWatchdog();
     } on CaptureNotReadyError {
-      // The session raced between the phase event and the call.
       _capturingRequested = false;
-      if (canQueue) {
-        _queueCaptureRequest();
+      if (attempt < _maxCaptureRetries) {
         _captureRetry?.cancel();
         _captureRetry = Timer(_captureRetryDelay, () {
-          if (!_disposed && _pendingCaptureRequest) {
-            unawaited(beginCapturing(canQueue: false));
+          if (!_disposed && state.isCapturePending) {
+            unawaited(beginCapturing(attempt: attempt + 1));
           }
         });
         return;
       }
-      _pendingCaptureRequest = false;
+      // The session kept refusing: say so instead of pretending the tap
+      // was accepted.
       AppHaptics.error();
-      state = state.copyWith(error: Strings.captureNotReady);
+      state = state.copyWith(
+        isCapturePending: false,
+        error: Strings.captureNotReady,
+      );
     } on FormaError catch (e) {
       _capturingRequested = false;
-      _pendingCaptureRequest = false;
       AppHaptics.error();
-      state = state.copyWith(error: e.userMessage);
+      state = state.copyWith(
+        isCapturePending: false,
+        error: e.userMessage,
+      );
     }
-  }
-
-  /// Remembers a capture tap made before the session could accept it.
-  void _queueCaptureRequest() {
-    _pendingCaptureRequest = true;
-    AppHaptics.tap();
   }
 
   /// Finishes capture and kicks off reconstruction.
@@ -418,7 +441,6 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     final id = _scanId;
     _scanId = null;
     _capturingRequested = false;
-    _pendingCaptureRequest = false;
     _sessionStartGeneration++;
     _watchdog?.cancel();
     _captureRetry?.cancel();
@@ -432,6 +454,17 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   Future<void> retry() async {
     await cancel();
     await start();
+  }
+
+  /// Maps a native phase name back to the bridge enum; null when the native
+  /// side reports something we have no phase for (e.g. "none").
+  static CapturePhase? _phaseFromName(String name) {
+    for (final phase in CapturePhase.values) {
+      if (phase.name == name) {
+        return phase;
+      }
+    }
+    return null;
   }
 
   /// Honest, actionable message per native error code (rules.md §7).
