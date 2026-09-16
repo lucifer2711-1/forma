@@ -14,10 +14,10 @@ concurrency:
 
 jobs:
   build-ios:
-    # macos-14 is deprecated and ships a pre-iOS-27 SDK; the test device
-    # runs official iOS 27, so build against the newest SDK available
-    # (device test 2026-09-17: tracking never locked on an old-SDK build).
-    runs-on: macos-26
+    # The test device runs official iOS 27; build against the iOS 27 SDK
+    # via the xcode-27 preview image. Falls back to macos-26 (Xcode 26.6,
+    # iOS 26.5 SDK) if Flutter/Xcode 27 proves incompatible.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
