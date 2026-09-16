@@ -243,8 +243,10 @@ final class CaptureService {
         // Object Capture hard-requires ~4 GB free; below that the session
         // fails instantly with .insufficientStorage (device log 2026-09-17:
         // 3.43 GB free → failed before the first frame). Surface it
-        // specifically so the UI can tell the user what to do.
-        if case .insufficientStorage = error {
+        // specifically so the UI can tell the user what to do. The case
+        // isn't public in every SDK, so match the description the session
+        // actually prints ("…Error.insufficientStorage(requiredBytes: …)").
+        if String(describing: error).contains("insufficientStorage") {
           events.emitError(
             code: 1007,
             message: "Not enough free space on this iPhone."
