@@ -43,8 +43,11 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     let viewport = ScanViewportController(events: events)
     // Replay the live session phase whenever Dart (re)subscribes, so a
     // transition that raced ahead of the listener is not lost for good.
+    // The sink is not main-actor isolated; the viewport is.
     events.onListenHandler = { [weak viewport] in
-      viewport?.replayCurrentPhase()
+      Task { @MainActor in
+        viewport?.replayCurrentPhase()
+      }
     }
     let handler = FormaChannelHandler(
       events: events,
