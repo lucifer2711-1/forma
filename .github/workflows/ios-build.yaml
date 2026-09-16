@@ -14,9 +14,20 @@ concurrency:
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    # macos-14 is deprecated and ships a pre-iOS-27 SDK; the test device
+    # runs official iOS 27, so build against the newest SDK available
+    # (device test 2026-09-17: tracking never locked on an old-SDK build).
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select newest Xcode (iOS 27 SDK when available)
+        run: |
+          ls /Applications | grep -i xcode || true
+          NEWEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos || true
 
       - uses: subosito/flutter-action@v2
         with:
