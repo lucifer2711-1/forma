@@ -41,6 +41,10 @@ abstract final class Strings {
       'Forma needs camera access to scan. Enable it in Settings.';
   static const storageFull =
       'Not enough free space to scan. Free up at least 4 GB and try again.';
+  static const gettingReady = 'Getting ready…';
+  static const captureNotReady =
+      'The scan is still warming up. Hold the phone steady for a moment and '
+      'tap again.';
   static const cameraDead =
       'The camera stopped responding. Please check camera permission in '
       'Settings and try again.';

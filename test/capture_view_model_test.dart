@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -52,6 +53,11 @@ void main() {
 
     await vm.start();
     expect(vm.state.phase, isNull);
+
+    // Object Capture only accepts a capture request from its .detecting
+    // state.
+    await emitFormaEvent({'type': 'phase', 'value': 'detecting'});
+    await pumpEventQueue();
 
     await vm.beginCapturing();
     expect(calls, contains('beginCapturing'));
@@ -260,6 +266,90 @@ void main() {
 
     expect(vm.state.isSessionStarting, isFalse);
     expect(vm.state.error, Strings.cameraDidNotStart);
+  });
+
+  test('an early capture tap is queued until the session is detecting',
+      () async {
+    mockFormaMethods((call) async {
+      calls.add(call.method);
+      if (call.method == 'getSessionState') {
+        return 'initializing';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // Tapped while the camera is still warming up — the tap must be kept,
+    // not turned into a "Capture failed." error.
+    await vm.beginCapturing();
+    await pumpEventQueue();
+
+    expect(calls, isNot(contains('beginCapturing')));
+    expect(vm.state.error, isNull);
+
+    // The moment the session is ready, the queued capture starts.
+    await emitFormaEvent({'type': 'phase', 'value': 'detecting'});
+    await pumpEventQueue();
+
+    expect(calls, contains('beginCapturing'));
+    expect(vm.state.error, isNull);
+  });
+
+  test('a native not-ready rejection is retried instead of surfaced',
+      () async {
+    var beginCalls = 0;
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'detecting';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      if (call.method == 'beginCapturing') {
+        beginCalls++;
+        if (beginCalls == 1) {
+          // Native guard: session not in .detecting yet (code 1006).
+          throw PlatformException(code: 'CAPTURE', details: 1006);
+        }
+        return null;
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await emitFormaEvent({'type': 'phase', 'value': 'detecting'});
+    await pumpEventQueue();
+
+    await vm.beginCapturing();
+    await pumpEventQueue();
+    expect(vm.state.error, isNull);
+
+    // The queued retry fires and the capture starts after all.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await pumpEventQueue();
+
+    expect(beginCalls, 2);
+    expect(vm.state.error, isNull);
   });
 
   test('a second start() while one is in flight is ignored', () async {

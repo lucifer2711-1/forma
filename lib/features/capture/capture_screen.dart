@@ -187,6 +187,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   }
 
   Widget _buildBottomControls(CaptureUiState state) {
+    if (state.phase == CapturePhase.capturing) {
+      return _buildFinishButton();
+    }
+    if (_isWaitingForSession(state)) {
+      // The session exists but Object Capture will not accept a capture yet
+      // (startCapturing() is only legal from its .detecting state). A
+      // disabled CTA is honest here; letting the tap through produced a
+      // bare "Capture failed." (device-test finding 2026-09-17).
+      return const PrimaryButton(label: Strings.gettingReady);
+    }
     if (_showsStartButton(state)) {
       return ScaleTransition(
         scale: Tween<double>(begin: 1, end: 1.05).animate(
@@ -199,6 +209,27 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       return _buildFinishButton();
     }
     return const SizedBox(height: 56);
+  }
+
+  /// Whether the session exists but cannot accept a capture yet — the
+  /// window between the camera coming up and Object Capture reporting
+  /// `.detecting`.
+  bool _isWaitingForSession(CaptureUiState state) {
+    if (state.isSessionStarting) {
+      return true;
+    }
+    switch (state.phase) {
+      case CapturePhase.initializing:
+      case CapturePhase.ready:
+        return true;
+      case CapturePhase.detecting:
+      case CapturePhase.capturing:
+      case CapturePhase.finishing:
+      case CapturePhase.completed:
+      case CapturePhase.failed:
+      case null:
+        return false;
+    }
   }
 
   /// Whether the pulsing "Start Capture" CTA should show (spec §8.4).

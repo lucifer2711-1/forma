@@ -32,6 +32,19 @@ class CaptureError extends FormaError {
       : super('Capture failed.', debugMessage: debug);
 }
 
+/// The session exists but is not accepting capture yet (native code
+/// 1006). Object Capture only allows `startCapturing()` from its
+/// `.detecting` state, which arrives a beat after the camera warms up —
+/// tapping early is a normal user action, not a failure.
+class CaptureNotReadyError extends FormaError {
+  const CaptureNotReadyError([String? debug])
+      : super(
+          'The scan is still warming up. Hold the phone steady for a moment '
+          'and tap again.',
+          debugMessage: debug,
+        );
+}
+
 /// Camera permission was denied (native code 1005).
 class CameraPermissionError extends FormaError {
   const CameraPermissionError([String? debug])

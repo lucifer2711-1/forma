@@ -42,7 +42,22 @@ void main() {
     await tester.tap(find.text(Strings.startScan));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
+
+    // The session is still warming up, so the capture CTA is deliberately
+    // not offered yet — tapping it there used to fail natively with a bare
+    // "Capture failed." (device-test finding 2026-09-17).
+    expect(find.text(Strings.gettingReady), findsOneWidget);
+    expect(find.text(Strings.scanCta), findsNothing);
+
+    // Once Object Capture reports it is detecting, the CTA appears.
+    // (runAsync: the event helper awaits a real timer, which the test's
+    // fake clock would otherwise never fire.)
+    await tester.runAsync(
+      () => emitFormaEvent({'type': 'phase', 'value': 'detecting'}),
+    );
+    await tester.pump();
     expect(find.text(Strings.scanCta), findsOneWidget);
+    expect(find.text(Strings.gettingReady), findsNothing);
 
     clearFormaChannelMocks();
   });

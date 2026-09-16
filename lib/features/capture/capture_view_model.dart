@@ -21,6 +21,10 @@ const _cameraWatchdogTimeout = Duration(seconds: 8);
 /// 2026-09-16: update-install retest).
 const _startCaptureTimeout = Duration(seconds: 20);
 
+/// How long to wait before retrying a capture request that the native
+/// session rejected as "not ready yet".
+const _captureRetryDelay = Duration(milliseconds: 300);
+
 /// Immutable UI state for the capture flow.
 class CaptureUiState {
   const CaptureUiState({
@@ -115,10 +119,15 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   late NativeBridge _bridge;
   final _subs = <StreamSubscription<dynamic>>[];
   Timer? _watchdog;
+  Timer? _captureRetry;
   String? _scanId;
   bool _capturingRequested = false;
   bool _startingSession = false;
   bool _disposed = false;
+
+  /// A capture tap that arrived before the session was ready to accept it.
+  /// Honoured as soon as the session reaches `.detecting`.
+  bool _pendingCaptureRequest = false;
   int _sessionStartGeneration = 0;
 
   @override
@@ -127,6 +136,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     ref.onDispose(() {
       _disposed = true;
       _watchdog?.cancel();
+      _captureRetry?.cancel();
       for (final sub in _subs) {
         unawaited(sub.cancel());
       }
@@ -185,6 +195,20 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       isTrackingInitializing: false,
       clearError: true,
     );
+    // A tap made while the session was still warming up starts capturing
+    // the moment Object Capture says it is ready.
+    _flushPendingCapture();
+  }
+
+  /// Fires a capture tap the user made before the session was ready.
+  void _flushPendingCapture() {
+    if (!_pendingCaptureRequest || _capturingRequested) {
+      return;
+    }
+    if (state.phase != CapturePhase.detecting) {
+      return;
+    }
+    unawaited(beginCapturing());
   }
 
   /// Arms the watchdog: if no native event arrives within
@@ -249,6 +273,8 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     }
     debugPrint('[forma] scan $id completed → $modelPath');
     _watchdog?.cancel();
+    _captureRetry?.cancel();
+    _pendingCaptureRequest = false;
     final now = DateTime.now();
     await ref.read(scanRepositoryProvider).save(
           Scan(
@@ -320,20 +346,55 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   }
 
   /// Advances the active session from detection into image capture.
-  Future<void> beginCapturing() async {
+  ///
+  /// Object Capture only accepts `startCapturing()` from the session's
+  /// `.detecting` state, which lands a beat after the camera warms up — so
+  /// tapping "Start Capture" early is a normal user action, not a failure.
+  /// The tap is remembered and honoured as soon as the session is ready,
+  /// instead of surfacing a raw "Capture failed." (device-test finding
+  /// 2026-09-17: an early tap looked like the capture was broken).
+  Future<void> beginCapturing({bool canQueue = true}) async {
     final id = _scanId;
     if (id == null || _capturingRequested) {
       return;
     }
+    if (state.phase != CapturePhase.detecting) {
+      _queueCaptureRequest();
+      return;
+    }
+    _pendingCaptureRequest = false;
     try {
       _capturingRequested = true;
       await _bridge.beginCapturing(id);
       _resetWatchdog();
+    } on CaptureNotReadyError {
+      // The session raced between the phase event and the call.
+      _capturingRequested = false;
+      if (canQueue) {
+        _queueCaptureRequest();
+        _captureRetry?.cancel();
+        _captureRetry = Timer(_captureRetryDelay, () {
+          if (!_disposed && _pendingCaptureRequest) {
+            unawaited(beginCapturing(canQueue: false));
+          }
+        });
+        return;
+      }
+      _pendingCaptureRequest = false;
+      AppHaptics.error();
+      state = state.copyWith(error: Strings.captureNotReady);
     } on FormaError catch (e) {
       _capturingRequested = false;
+      _pendingCaptureRequest = false;
       AppHaptics.error();
       state = state.copyWith(error: e.userMessage);
     }
+  }
+
+  /// Remembers a capture tap made before the session could accept it.
+  void _queueCaptureRequest() {
+    _pendingCaptureRequest = true;
+    AppHaptics.tap();
   }
 
   /// Finishes capture and kicks off reconstruction.
@@ -357,8 +418,10 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     final id = _scanId;
     _scanId = null;
     _capturingRequested = false;
+    _pendingCaptureRequest = false;
     _sessionStartGeneration++;
     _watchdog?.cancel();
+    _captureRetry?.cancel();
     if (id != null) {
       unawaited(_bridge.cancelCapture(id));
     }

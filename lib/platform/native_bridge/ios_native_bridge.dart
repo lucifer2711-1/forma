@@ -108,6 +108,7 @@ class IosNativeBridge implements NativeBridge {
     return switch (e.code) {
       'UNSUPPORTED' => UnsupportedDeviceError(debug),
       'CAPTURE' when nativeCode == 1005 => CameraPermissionError(debug),
+      'CAPTURE' when nativeCode == 1006 => CaptureNotReadyError(debug),
       'CAPTURE' when nativeCode == 1007 => StorageFullError(debug),
       'CAPTURE' => CaptureError(debug),
       'RECONSTRUCT' => ReconstructionError(debug),
