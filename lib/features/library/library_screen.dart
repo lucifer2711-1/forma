@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forma/core/models/scan.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/components/empty_state.dart';
@@ -9,6 +10,7 @@ import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/features/capture/capture_screen.dart';
 import 'package:forma/features/library/widgets/scan_card.dart';
 import 'package:forma/features/unsupported_device/unsupported_device_screen.dart';
+import 'package:forma/features/viewer/model_viewer_screen.dart';
 
 /// Home screen: the scan library grid (design.md §4.3).
 class LibraryScreen extends ConsumerWidget {
@@ -69,8 +71,10 @@ class LibraryScreen extends ConsumerWidget {
                   childAspectRatio: 3 / 4,
                 ),
                 itemCount: items.length,
-                itemBuilder: (context, index) =>
-                    ScanCard(scan: items[index]),
+                itemBuilder: (context, index) => ScanCard(
+                  scan: items[index],
+                  onTap: () => _openScan(context, items[index]),
+                ),
               ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -79,6 +83,30 @@ class LibraryScreen extends ConsumerWidget {
         shape: const CircleBorder(),
         onPressed: () => _startScan(context, ref),
         child: const Icon(Icons.filter_center_focus, size: 28),
+      ),
+    );
+  }
+
+  /// Opens a scan's 360° model viewer, or says honestly why it cannot.
+  ///
+  /// A scan whose model is not written yet must not open a black screen, so
+  /// the card only routes to the viewer once the model exists (device-test
+  /// finding 2026-09-18: "model is created in the app but it is not
+  /// viewable" — there was no viewer at all).
+  Future<void> _openScan(BuildContext context, Scan scan) async {
+    if (scan.modelPath == null || scan.status != ScanStatus.ready) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(Strings.scanStillBuilding),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ModelViewerScreen(scan: scan),
       ),
     );
   }

@@ -10,15 +10,18 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
   private let reconstructionService: ReconstructionService
   private let exportService: ExportService
   private let viewport: ScanViewportController
+  private let modelViewerHub: ModelViewerHub
 
   private init(
     events: FormaEventSink,
     exportService: ExportService,
-    viewport: ScanViewportController
+    viewport: ScanViewportController,
+    modelViewerHub: ModelViewerHub
   ) {
     self.events = events
     self.exportService = exportService
     self.viewport = viewport
+    self.modelViewerHub = modelViewerHub
     self.captureService = CaptureService(events: events, viewport: viewport)
     let export = exportService
     self.reconstructionService = ReconstructionService(
@@ -49,10 +52,12 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
         viewport?.replayCurrentPhase()
       }
     }
+    let modelViewerHub = ModelViewerHub()
     let handler = FormaChannelHandler(
       events: events,
       exportService: exportService,
-      viewport: viewport
+      viewport: viewport,
+      modelViewerHub: modelViewerHub
     )
     eventChannel.setStreamHandler(events)
     registrar.addMethodCallDelegate(handler, channel: methodChannel)
@@ -60,6 +65,11 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
     registrar.register(
       CapturePreviewViewFactory(controller: viewport),
       withId: "com.forma.app/capture_preview"
+    )
+    // 360° viewer for finished scans (ModelPreview.dart).
+    registrar.register(
+      ModelPreviewViewFactory(hub: modelViewerHub),
+      withId: "com.forma.app/model_viewer"
     )
   }
 
@@ -110,6 +120,12 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
           scanId: scanId,
           capture: self.captureService
         )
+      }
+    case "resetModelView":
+      Task { [weak self] in
+        guard let self else { return }
+        await self.modelViewerHub.resetViews()
+        self.respond(result, nil)
       }
     case "exportModel":
       exportModel(call, result)

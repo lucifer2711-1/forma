@@ -15,6 +15,7 @@ import 'package:forma/features/capture/widgets/camera_health_overlay.dart';
 import 'package:forma/features/capture/widgets/camera_preview.dart';
 import 'package:forma/features/capture/widgets/centered_message.dart';
 import 'package:forma/features/capture/widgets/reconstruction_panel.dart';
+import 'package:forma/features/viewer/model_viewer_screen.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
 
 /// Full-screen capture flow: aim → capture → reconstruct (spec §8.4).
@@ -60,14 +61,27 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       final wasCompleted = previous?.isCompleted ?? false;
       if (next.isCompleted && !wasCompleted) {
         AppHaptics.success();
-        ScaffoldMessenger.of(context).showSnackBar(
+        // Resolve both before popping: the capture screen's context is gone
+        // by the time the viewer opens.
+        final navigator = Navigator.of(context);
+        final messenger = ScaffoldMessenger.of(context);
+        final scan = next.completedScan;
+        messenger.showSnackBar(
           const SnackBar(
             content: Text(Strings.modelReady),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 2),
           ),
         );
-        Navigator.of(context).pop();
+        navigator.pop();
+        if (scan != null) {
+          // Straight into the 360° model the scan just produced.
+          navigator.push(
+            MaterialPageRoute<void>(
+              builder: (_) => ModelViewerScreen(scan: scan),
+            ),
+          );
+        }
       }
     });
 
@@ -113,12 +127,75 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         child: Column(
           children: [
             _buildTopBar(state),
-            Expanded(child: Center(child: _buildStatusText(state))),
+            if (state.isReconstructing)
+              Expanded(child: Center(child: _buildStatusText(state)))
+            else ...[
+              const SizedBox(height: AppSpacing.lg),
+              _buildStatusText(state),
+              // The middle of the screen belongs to Object Capture's own AR
+              // guidance: the bounding box, the walk-around arrows and the
+              // coverage ring are all drawn there. Our hint used to sit
+              // centred on top of it — hiding exactly the guidance a
+              // full-coverage scan needs (device-test finding 2026-09-18).
+              const Spacer(),
+              _buildStepDots(state),
+            ],
             _buildBottomControls(state),
           ],
         ),
       ),
     );
+  }
+
+  /// Progress through the three capture steps (aim → walk → build).
+  ///
+  /// The phase alone only says what to do next; a scan needs the user to know
+  /// it is a loop around the whole object, and where they are in it.
+  Widget _buildStepDots(CaptureUiState state) {
+    final colors = FormaColors.of(context);
+    final active = _stepFor(state);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Semantics(
+        label: Strings.captureStepLabel(active + 1),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var step = 0; step < 3; step++)
+              AnimatedContainer(
+                duration: Motion.micro,
+                curve: Motion.curve,
+                width: step == active ? 24 : 8,
+                height: 8,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  color: step == active
+                      ? colors.accent
+                      : colors.textTertiary.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 0 = aim, 1 = walk around, 2 = build.
+  int _stepFor(CaptureUiState state) {
+    switch (state.phase) {
+      case CapturePhase.capturing:
+        return 1;
+      case CapturePhase.finishing:
+      case CapturePhase.completed:
+        return 2;
+      case CapturePhase.initializing:
+      case CapturePhase.ready:
+      case CapturePhase.detecting:
+      case CapturePhase.failed:
+      case null:
+        return 0;
+    }
   }
 
   Widget _buildTopBar(CaptureUiState state) {
@@ -272,16 +349,21 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         return Strings.slowDown;
       case CaptureFeedbackType.outOfFieldOfView:
         return Strings.keepInView;
+      case CaptureFeedbackType.environmentLowLight:
+        return Strings.lowLightHint;
+      case CaptureFeedbackType.objectNotDetected:
+        return Strings.objectNotDetectedHint;
       case CaptureFeedbackType.none:
         break;
     }
     switch (state.phase) {
+      case CapturePhase.detecting:
+        return Strings.detectingHint;
       case CapturePhase.capturing:
         return Strings.capturingHint;
       case CapturePhase.finishing:
         return Strings.finishingHint;
       case CapturePhase.ready:
-      case CapturePhase.detecting:
       case CapturePhase.initializing:
       case CapturePhase.completed:
       case CapturePhase.failed:

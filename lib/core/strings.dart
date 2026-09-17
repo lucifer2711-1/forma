@@ -14,7 +14,13 @@ abstract final class Strings {
   static const loadFailedTitle = 'Something went wrong';
   static const loadFailedSubtitle = 'Could not load your library.';
   static const aimHint = 'Aim at your object';
-  static const capturingHint = 'Walk around the object slowly';
+  static const detectingHint = 'Line the object up inside the box';
+  static const capturingHint =
+      'Walk a full circle around the object — keep every side in view';
+  static const lowLightHint =
+      'It is too dark to scan. Move somewhere brighter.';
+  static const objectNotDetectedHint =
+      'Point at the object and hold steady.';
   static const finishingHint = 'Finishing up';
   static const reconstructing = 'Reconstructing';
   static const modelReady = 'Model ready!';
@@ -72,6 +78,21 @@ abstract final class Strings {
       'Point at a well-lit, textured surface — the camera is warming up.';
   static const torchLabel = 'Flashlight';
   static const torchComingSoon = 'Torch arrives in the next build';
+
+  /// Accessibility label for the capture step indicator.
+  static String captureStepLabel(int step) => 'Step $step of 3';
+
+  // 360° model viewer.
+  static const modelViewerHint = 'Drag to rotate · pinch to zoom';
+  static const resetView = 'Reset view';
+  static const modelMissingTitle = 'Model not available';
+  static const modelMissingSubtitle =
+      'The 3D file for this scan is missing. Scan the object again to '
+      'rebuild it.';
+  static const modelViewerIosOnly =
+      'The 360° viewer runs on iPhone. Open this scan there to see the model.';
+  static const scanStillBuilding =
+      'This scan is still being built. It will appear here when it is ready.';
 
   /// Build stamp injected at compile time by CI via `--dart-define`
   /// (`FORMA_BUILD`). Empty on local/dev builds, in which case nothing

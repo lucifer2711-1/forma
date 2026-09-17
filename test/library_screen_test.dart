@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -96,5 +98,67 @@ void main() {
 
     expect(find.text(Strings.unsupportedTitle), findsOneWidget);
     expect(find.text(Strings.scanCta), findsNothing);
+  });
+
+  testWidgets('tapping a finished scan opens its 360° model viewer',
+      (tester) async {
+    // Synchronous on purpose: real async file I/O never completes inside
+    // flutter_test's fake-async zone, so `createTemp()` would hang the test
+    // (gotcha 23).
+    final directory = Directory.systemTemp.createTempSync('forma-viewer');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final model = File('${directory.path}/Model.usdz')
+      ..writeAsStringSync('usdz');
+
+    final repo = MemoryScanRepository();
+    await repo.save(
+      Scan(
+        id: 'a',
+        name: 'Mug',
+        createdAt: DateTime(2026, 3, 15),
+        status: ScanStatus.ready,
+        modelPath: model.path,
+      ),
+    );
+    await _pump(tester, repo: repo, supported: true);
+
+    await tester.tap(find.text('Mug'));
+    await tester.pumpAndSettle();
+
+    // The viewer opens. This host cannot render RealityKit, so it says so
+    // instead of showing the black screen a model test would otherwise
+    // report as "the model exists but is not viewable".
+    expect(find.text(Strings.modelViewerIosOnly), findsOneWidget);
+  });
+
+  testWidgets('a scan with no model does not open a viewer',
+      (tester) async {
+    final repo = MemoryScanRepository();
+    await repo.save(_scan('a', 'Mug'));
+    await _pump(tester, repo: repo, supported: true);
+
+    await tester.tap(find.text('Mug'));
+    await tester.pump();
+
+    expect(find.text(Strings.scanStillBuilding), findsOneWidget);
+  });
+
+  testWidgets('a scan whose model file is gone says so', (tester) async {
+    final repo = MemoryScanRepository();
+    await repo.save(
+      Scan(
+        id: 'a',
+        name: 'Mug',
+        createdAt: DateTime(2026, 3, 15),
+        status: ScanStatus.ready,
+        modelPath: '${Directory.systemTemp.path}/forma-missing/Model.usdz',
+      ),
+    );
+    await _pump(tester, repo: repo, supported: true);
+
+    await tester.tap(find.text('Mug'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(Strings.modelMissingSubtitle), findsOneWidget);
   });
 }

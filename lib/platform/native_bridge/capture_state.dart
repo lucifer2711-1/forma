@@ -39,6 +39,16 @@ enum CaptureFeedbackType {
 
   /// Object is out of the field of view.
   outOfFieldOfView,
+
+  /// The scene is too dark for Object Capture to read.
+  ///
+  /// Reported by the session (`Feedback.environmentLowLight`) and previously
+  /// thrown away, which left the user with a scan that never progressed and
+  /// no reason why (device-test finding 2026-09-18).
+  environmentLowLight,
+
+  /// The session cannot find an object to scan yet.
+  objectNotDetected,
 }
 
 /// A guidance feedback event.

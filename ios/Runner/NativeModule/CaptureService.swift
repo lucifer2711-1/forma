@@ -401,21 +401,49 @@ final class CaptureService {
   }
 
   /// Maps a feedback set to the single most urgent guidance value.
+  ///
+  /// Priority is "fix the environment first": nothing else can be read while
+  /// the scene is too dark, so low light outranks framing and speed. The
+  /// environment and object-detection cases are matched by description rather
+  /// than by enum case: `Feedback` gains cases between SDKs, and naming a case
+  /// a given SDK lacks would not compile (gotcha 22). Matching the description
+  /// also means a case we cannot name is logged instead of silently dropped —
+  /// the device log showed `Feedback.environmentLowLight`, which the previous
+  /// four-value mapping threw away (device-test finding 2026-09-18).
   private static func primaryFeedback(
     _ feedback: Set<ObjectCaptureSession.Feedback>
   ) -> String {
-    if feedback.contains(.outOfFieldOfView) {
+    guard !feedback.isEmpty else {
+      return "none"
+    }
+    let described = feedback.map { String(describing: $0) }
+    func has(_ name: String) -> Bool {
+      described.contains { $0.contains(name) }
+    }
+
+    if has("environmentLowLight") || has("environmentTooDark") {
+      return "environmentLowLight"
+    }
+    if has("objectNotDetected") {
+      return "objectNotDetected"
+    }
+    if has("outOfFieldOfView") {
       return "outOfFieldOfView"
     }
-    if feedback.contains(.movingTooFast) {
+    if has("movingTooFast") {
       return "movingTooFast"
     }
-    if feedback.contains(.objectTooClose) {
+    if has("objectTooClose") {
       return "objectTooClose"
     }
-    if feedback.contains(.objectTooFar) {
+    if has("objectTooFar") {
       return "objectTooFar"
     }
+    // Unknown guidance is reported, never swallowed: this is how a renamed
+    // case gets discovered from the device log instead of by guesswork.
+    CameraDebugLogger.capture.info(
+      "unmapped capture feedback: \(described.joined(separator: ", "), privacy: .public)"
+    )
     return "none"
   }
 }

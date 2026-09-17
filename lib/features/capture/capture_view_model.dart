@@ -41,11 +41,16 @@ class CaptureUiState {
     this.isSessionStarting = false,
     this.isTrackingInitializing = false,
     this.isCapturePending = false,
+    this.completedScan,
     this.error,
   });
 
   /// Latest bridge capture phase; null until capture starts.
   final CapturePhase? phase;
+
+  /// The scan that just finished building, so the capture screen can hand the
+  /// user straight to its 360° viewer instead of only announcing it.
+  final Scan? completedScan;
 
   /// Latest guidance feedback.
   final CaptureFeedbackType feedback;
@@ -91,6 +96,7 @@ class CaptureUiState {
     bool? isSessionStarting,
     bool? isTrackingInitializing,
     bool? isCapturePending,
+    Scan? completedScan,
     String? error,
     bool clearError = false,
   }) {
@@ -106,6 +112,7 @@ class CaptureUiState {
       isTrackingInitializing:
           isTrackingInitializing ?? this.isTrackingInitializing,
       isCapturePending: isCapturePending ?? this.isCapturePending,
+      completedScan: completedScan ?? this.completedScan,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -329,20 +336,21 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     _watchdog?.cancel();
     _captureRetry?.cancel();
     final now = DateTime.now();
-    await ref.read(scanRepositoryProvider).save(
-          Scan(
-            id: id,
-            name: 'Scan ${now.hour.toString().padLeft(2, '0')}:'
-                '${now.minute.toString().padLeft(2, '0')}',
-            createdAt: now,
-            status: ScanStatus.ready,
-            modelPath: modelPath,
-          ),
-        );
+    final scan = Scan(
+      id: id,
+      name: 'Scan ${now.hour.toString().padLeft(2, '0')}:'
+          '${now.minute.toString().padLeft(2, '0')}',
+      createdAt: now,
+      status: ScanStatus.ready,
+      modelPath: modelPath,
+    );
+    await ref.read(scanRepositoryProvider).save(scan);
     state = state.copyWith(
       isReconstructing: false,
       isCompleted: true,
       isCapturePending: false,
+      // Carried so the screen can open the 360° viewer for it.
+      completedScan: scan,
     );
     // Clear the scan bookkeeping so the NEXT session can start; the UI
     // state itself stays "completed" until the screen pops and start()

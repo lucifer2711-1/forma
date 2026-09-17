@@ -40,6 +40,10 @@ abstract interface class NativeBridge {
   /// for ARKit tracking to initialize (lighting/texture guidance case).
   Future<String> getSessionState();
 
+  /// Returns every mounted model viewer to its framing position (the 360°
+  /// viewer's "reset view" affordance).
+  Future<void> resetModelView();
+
   /// Continuous capture phase updates.
   Stream<CapturePhase> get phaseUpdates;
 

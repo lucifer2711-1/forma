@@ -16,10 +16,13 @@ import 'package:forma/design_system/tokens/app_typography.dart';
 /// I/O on the UI thread.
 class ScanCard extends StatefulWidget {
   /// Creates a card for [scan].
-  const ScanCard({required this.scan, super.key});
+  const ScanCard({required this.scan, this.onTap, super.key});
 
   /// The scan to render.
   final Scan scan;
+
+  /// Opens the scan (its 360° model viewer).
+  final VoidCallback? onTap;
 
   @override
   State<ScanCard> createState() => _ScanCardState();
@@ -30,6 +33,21 @@ class _ScanCardState extends State<ScanCard> {
   Widget build(BuildContext context) {
     final colors = FormaColors.of(context);
     final path = widget.scan.thumbnailPath;
+    return Semantics(
+      button: true,
+      label: widget.scan.name,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          child: _buildTile(colors, path),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTile(FormaColors colors, String? path) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadii.card),
       child: Stack(
