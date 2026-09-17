@@ -133,8 +133,16 @@ final class CaptureService {
     }
     startStatePolling()
 
-    session.start(imagesDirectory: imagesDirectory)
+    // Bind the preview BEFORE starting the session.
+    //
+    // Apple's own Object Capture sample installs `ObjectCaptureView` for the
+    // session first and starts it from the view's `onAppear`. Creating the
+    // view afterwards let the session run (frames flowing at 30 Hz in the
+    // device log) while the view never attached to the live feed — a
+    // permanently black preview. The view must exist before `start(…)`
+    // (device-test finding 2026-09-18).
     viewport?.attach(session: session)
+    session.start(imagesDirectory: imagesDirectory)
     return scanId
   }
 
@@ -203,13 +211,17 @@ final class CaptureService {
       }
     }
     if scanId == self.scanId {
+      // Blank every preview BEFORE releasing the session, so no installed
+      // `ObjectCaptureView` is ever left holding a session this service has
+      // dropped (RealityKit draws "Cannot make a view for a deinitialized
+      // ObjectCaptureSession" over the feed when that happens).
+      viewport?.clearSession()
       self.scanId = nil
       self.session = nil
       lastHandledPhase = nil
       stateTask?.cancel()
       feedbackTask?.cancel()
       statePollTask?.cancel()
-      viewport?.clearSession()
     }
     if let imagesDirectory {
       try? FileManager.default.removeItem(
@@ -307,6 +319,11 @@ final class CaptureService {
       CameraDebugLogger.capture.info("capture state: ready → startDetecting")
       requestDetecting()
     case .completed:
+      // The live feed is over. Drop the view before Apple tears the
+      // session's capture model down, or the preview keeps trying to draw
+      // a finished session (device-test finding 2026-09-18: black feed
+      // with "Cannot make a view for a deinitialized ObjectCaptureSession").
+      viewport?.unbindPreviews()
       if let scanId {
         completedScans.insert(scanId)
         resumeWaiters(scanId, with: imagesDirectories[scanId])
@@ -314,6 +331,7 @@ final class CaptureService {
     case .initializing:
       break
     case .failed(let error):
+      viewport?.unbindPreviews()
       if let scanId {
         resumeWaiters(scanId, with: nil)
         CameraDebugLogger.capture.error(

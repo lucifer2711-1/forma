@@ -7,6 +7,11 @@ import UIKit
 /// The SwiftUI content that renders a live `ObjectCaptureSession` camera
 /// feed via Apple's `ObjectCaptureView` (iOS 17 SDK signature: the session
 /// is passed directly, not as a binding).
+///
+/// `CapturePreviewContent` is only ever built for a session the session's
+/// owner still holds — `ObjectCaptureView` cannot build a feed for a
+/// released session, and draws Apple's own "Cannot make a view for a
+/// deinitialized ObjectCaptureSession" message instead.
 struct CapturePreviewContent: View {
   let session: ObjectCaptureSession
 
@@ -71,6 +76,14 @@ final class CapturePreviewRendererImpl: CapturePreviewRenderer {
   private let host: UIHostingController<AnyView>
   private let container: CapturePreviewContainerView
 
+  /// The session this preview is currently rendering, held strongly on
+  /// purpose. `UIHostingController` only references it through the view
+  /// tree, so without this a session could be released while a view for it
+  /// was still installed — which RealityKit reports by drawing "Cannot make
+  /// a view for a deinitialized ObjectCaptureSession" over a black feed
+  /// (device-test finding 2026-09-18).
+  private var boundSession: ObjectCaptureSession?
+
   init() {
     host = UIHostingController(rootView: AnyView(Color.black))
     host.view.backgroundColor = .black
@@ -85,11 +98,21 @@ final class CapturePreviewRendererImpl: CapturePreviewRenderer {
   var view: UIView { container }
 
   func bind(session: ObjectCaptureSession) {
+    guard boundSession !== session else {
+      return
+    }
+    boundSession = session
     host.rootView = AnyView(CapturePreviewContent(session: session))
+    CameraDebugLogger.capture.info("preview bound to live capture session")
     kickLifecycle()
   }
 
   func unbind() {
+    guard boundSession != nil else {
+      return
+    }
+    CameraDebugLogger.capture.info("preview unbound (no renderable session)")
+    boundSession = nil
     host.rootView = AnyView(Color.black)
   }
 
@@ -116,6 +139,7 @@ final class CapturePreviewPlatformView: NSObject, FlutterPlatformView {
   /// Held strongly (and not only by the weak viewport reference) so the
   /// hosting controller survives for as long as the preview is on screen.
   private let renderer: CapturePreviewRendererImpl
+  private let controller: ScanViewportController
   private let embeddedView: UIView
 
   init(
@@ -125,6 +149,7 @@ final class CapturePreviewPlatformView: NSObject, FlutterPlatformView {
   ) {
     let renderer = MainActor.assumeIsolated { CapturePreviewRendererImpl() }
     self.renderer = renderer
+    self.controller = controller
     embeddedView = MainActor.assumeIsolated {
       let embedded = renderer.view
       // Size the hosted view to Flutter's layout and keep it tracking
@@ -134,6 +159,21 @@ final class CapturePreviewPlatformView: NSObject, FlutterPlatformView {
       embedded.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       controller.setPreview(renderer)
       return embedded
+    }
+  }
+
+  deinit {
+    // Flutter disposes platform views on the platform (main) thread. The
+    // renderer must stop being a bind target and let go of its session, or
+    // a later session swap would leave it rendering a released one.
+    let renderer = self.renderer
+    let controller = self.controller
+    guard Thread.isMainThread else {
+      return
+    }
+    MainActor.assumeIsolated {
+      controller.removePreview(renderer)
+      renderer.unbind()
     }
   }
 

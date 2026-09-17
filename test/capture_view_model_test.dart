@@ -405,4 +405,115 @@ void main() {
     // arrives (the feed is not confirmed live yet) — that's by design.
     expect(vm.state.error, isNull);
   });
+
+  test('a completed session is handed to reconstruction without a tap',
+      () async {
+    final reconstructed = <String>[];
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'capturing';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      if (call.method == 'startReconstruction') {
+        reconstructed.add('scan-1');
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // The session wrapped up without the app driving it there. The scan must
+    // still be built — the screen used to dead-end with nothing to tap and no
+    // reconstruction (device-test finding 2026-09-18).
+    await emitFormaEvent({'type': 'phase', 'value': 'completed'});
+    await pumpEventQueue();
+
+    expect(reconstructed, ['scan-1']);
+    expect(vm.state.isReconstructing, isTrue);
+  });
+
+  test('completion adopted by the probe also starts reconstruction',
+      () async {
+    final reconstructed = <String>[];
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'completed';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      if (call.method == 'startReconstruction') {
+        reconstructed.add('scan-1');
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // The completion event was lost entirely; the probe reconciles it and
+    // the build still runs.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.phase, CapturePhase.completed);
+    expect(reconstructed, ['scan-1']);
+  });
+
+  test('the camera-dead probe never overwrites a specific reason', () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'none';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // Native reported the real reason (insufficient storage, code 1007).
+    await emitFormaEvent({
+      'type': 'error',
+      'value': {
+        'code': 1007,
+        'message': 'Not enough free space on this iPhone.',
+      },
+    });
+    await pumpEventQueue();
+    expect(vm.state.error, Strings.storageFull);
+
+    // The probe finds no live session — the actionable reason must survive
+    // instead of being flattened into the generic camera message.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    await pumpEventQueue();
+
+    expect(vm.state.error, Strings.storageFull);
+  });
 }

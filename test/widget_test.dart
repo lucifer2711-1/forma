@@ -63,6 +63,27 @@ void main() {
     expect(find.text(Strings.finishCapture), findsOneWidget);
     expect(find.text(Strings.gettingReady), findsNothing);
 
+    // Guidance must point the way the session actually needs. An object that
+    // is too close means backing the camera away — these were inverted, so
+    // the app told users to move closer when they needed to move back.
+    // The hint pill crossfades, so each change needs a frame to apply and
+    // another to let the outgoing hint finish animating out.
+    await tester.runAsync(
+      () => emitFormaEvent({'type': 'feedback', 'value': 'objectTooClose'}),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(Strings.moveFarther), findsOneWidget);
+    expect(find.text(Strings.moveCloser), findsNothing);
+
+    await tester.runAsync(
+      () => emitFormaEvent({'type': 'feedback', 'value': 'objectTooFar'}),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(Strings.moveCloser), findsOneWidget);
+    expect(find.text(Strings.moveFarther), findsNothing);
+
     clearFormaChannelMocks();
   });
 }

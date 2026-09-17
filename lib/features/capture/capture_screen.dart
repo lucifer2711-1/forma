@@ -259,11 +259,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       );
 
   String _hintFor(CaptureUiState state) {
+    // The feedback names describe where the object is, so the guidance is the
+    // opposite direction. These were inverted: `objectTooClose` told the user
+    // to move closer and `objectTooFar` to move farther — the app fought the
+    // session's own guidance (device-test finding 2026-09-18).
     switch (state.feedback) {
       case CaptureFeedbackType.objectTooClose:
-        return Strings.moveCloser;
-      case CaptureFeedbackType.objectTooFar:
         return Strings.moveFarther;
+      case CaptureFeedbackType.objectTooFar:
+        return Strings.moveCloser;
       case CaptureFeedbackType.movingTooFast:
         return Strings.slowDown;
       case CaptureFeedbackType.outOfFieldOfView:

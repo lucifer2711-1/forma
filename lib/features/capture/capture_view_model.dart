@@ -208,9 +208,31 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       state = state.copyWith(isCapturePending: false);
       return;
     }
+    if (phase == CapturePhase.completed) {
+      _captureRetry?.cancel();
+      state = state.copyWith(isCapturePending: false);
+      _ensureReconstruction();
+      return;
+    }
     // A tap made while the session was still warming up starts capturing
     // the moment Object Capture says it is ready.
     _flushPendingCapture();
+  }
+
+  /// Hands a finished session to reconstruction exactly once.
+  ///
+  /// The session can reach `.completed` without the app having driven it on —
+  /// a finish that never made it to the reconstruction step, or a phase that
+  /// arrived late. Without this the screen dead-ended: no CTA, no progress,
+  /// and the scan was never built (device-test finding 2026-09-18).
+  void _ensureReconstruction() {
+    if (_disposed ||
+        _scanId == null ||
+        state.isReconstructing ||
+        state.isCompleted) {
+      return;
+    }
+    unawaited(_startReconstruction());
   }
 
   /// Fires a capture tap the user made before the session was ready.
@@ -277,6 +299,12 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
           isCapturePending: isCapturing ? false : null,
           clearError: true,
         );
+        if (probed == CapturePhase.completed) {
+          // The completion event was missed: build the scan rather than
+          // leaving the screen with nothing to tap.
+          _ensureReconstruction();
+          return;
+        }
         _flushPendingCapture();
         return;
       }
@@ -284,7 +312,10 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       state = state.copyWith(
         isCameraLive: false,
         isSessionStarting: false,
-        error: Strings.cameraDead,
+        // A specific reason (storage, permission, "not enough light") is
+        // never replaced by the generic camera message — the honest error
+        // the session already gave stays in front of the user.
+        error: state.error ?? Strings.cameraDead,
       );
     });
   }
@@ -429,6 +460,21 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     state = state.copyWith(isReconstructing: true);
     try {
       await _bridge.finishCapture(id);
+      await _startReconstruction();
+    } on FormaError catch (e) {
+      AppHaptics.error();
+      state = state.copyWith(isReconstructing: false, error: e.userMessage);
+    }
+  }
+
+  /// Starts reconstruction for the active scan and surfaces its failures.
+  Future<void> _startReconstruction() async {
+    final id = _scanId;
+    if (id == null) {
+      return;
+    }
+    state = state.copyWith(isReconstructing: true, clearError: true);
+    try {
       await _bridge.startReconstruction(id);
     } on FormaError catch (e) {
       AppHaptics.error();
