@@ -32,6 +32,17 @@ class CaptureError extends FormaError {
       : super('Capture failed.', debugMessage: debug);
 }
 
+/// The capture session was already gone (or belonged to a different scan)
+/// when the request arrived — native codes 1004 (begin) and 1002 (finish).
+/// Object Capture has no recoverable state here; the scan has to restart.
+class ScanSessionEndedError extends FormaError {
+  const ScanSessionEndedError([String? debug])
+      : super(
+          'The scan session ended. Close and reopen the capture screen.',
+          debugMessage: debug,
+        );
+}
+
 /// The session exists but is not accepting capture yet (native code
 /// 1006). Object Capture only allows `startCapturing()` from its
 /// `.detecting` state, which arrives a beat after the camera warms up —

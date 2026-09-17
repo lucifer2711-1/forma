@@ -48,6 +48,23 @@ abstract final class Strings {
   static const cameraDead =
       'The camera stopped responding. Please check camera permission in '
       'Settings and try again.';
+  static const scanFailed =
+      'The scan stopped unexpectedly. Please try again.';
+  static const scanFull =
+      'This scan has all the photos it can hold. Tap Finish to build it.';
+  static const cameraSensorFailed =
+      'The camera reported a problem. Close the app, reopen it, and try '
+      'again.';
+  static const trackingLost =
+      'The camera lost track of the scene. Move to a brighter spot with more '
+      'detail and try again.';
+  static const scanSessionEnded =
+      'The scan session ended. Close and reopen the capture screen.';
+  static const reconstructionFailed =
+      'Could not build the 3D model. Try again with more coverage of the '
+      'object.';
+  static const captureIncomplete =
+      'The scan stopped before its photos were saved. Please scan again.';
   static const cameraStarting = 'Starting camera…';
   static const cameraDidNotStart =
       'The camera did not start. Close and reopen the app, then try again.';

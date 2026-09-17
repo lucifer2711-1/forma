@@ -514,9 +514,20 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   }
 
   /// Honest, actionable message per native error code (rules.md §7).
+  ///
+  /// Every one of these used to collapse into "Something went wrong. Please
+  /// try again.", so a failed scan named no cause — neither to the user nor
+  /// to anyone reading the screen (device-test finding 2026-09-18).
   String _messageFor(int code) => switch (code) {
+        1001 => Strings.scanFailed,
+        1002 || 1004 => Strings.scanSessionEnded,
         1005 => Strings.cameraPermissionDenied,
         1007 => Strings.storageFull,
+        1008 => Strings.scanFull,
+        1009 => Strings.cameraSensorFailed,
+        1010 => Strings.trackingLost,
+        2001 || 2002 => Strings.reconstructionFailed,
+        2003 => Strings.captureIncomplete,
         _ => Strings.genericError,
       };
 }

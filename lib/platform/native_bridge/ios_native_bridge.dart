@@ -107,6 +107,8 @@ class IosNativeBridge implements NativeBridge {
     final nativeCode = e.details is int ? e.details as int : null;
     return switch (e.code) {
       'UNSUPPORTED' => UnsupportedDeviceError(debug),
+      'CAPTURE' when nativeCode == 1002 || nativeCode == 1004 =>
+        ScanSessionEndedError(debug),
       'CAPTURE' when nativeCode == 1005 => CameraPermissionError(debug),
       'CAPTURE' when nativeCode == 1006 => CaptureNotReadyError(debug),
       'CAPTURE' when nativeCode == 1007 => StorageFullError(debug),

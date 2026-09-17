@@ -89,7 +89,9 @@ void main() {
     });
     await pumpEventQueue();
 
-    expect(vm.state.error, 'Something went wrong. Please try again.');
+    // Reconstruction failure (2001) names itself, and the native detail
+    // stays in the log — never in front of the user.
+    expect(vm.state.error, Strings.reconstructionFailed);
     expect(vm.state.error, isNot(contains('0xdeadbeef')));
   });
 
@@ -475,6 +477,81 @@ void main() {
 
     expect(vm.state.phase, CapturePhase.completed);
     expect(reconstructed, ['scan-1']);
+  });
+
+  test('a failed session names its cause instead of a generic error',
+      () async {
+    // Native code 1010 = ObjectCaptureSession .failed(trackingFailed):
+    // every capture failure used to reach the UI as "Something went wrong".
+    for (final (code, expected) in [
+      (1001, Strings.scanFailed),
+      (1010, Strings.trackingLost),
+      (1009, Strings.cameraSensorFailed),
+      (1008, Strings.scanFull),
+      (2001, Strings.reconstructionFailed),
+      (2003, Strings.captureIncomplete),
+    ]) {
+      final testContainer = ProviderContainer(
+        overrides: [
+          scanRepositoryProvider.overrideWithValue(repo),
+          captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+        ],
+      );
+      final vm = testContainer.read(captureViewModelProvider.notifier);
+      await vm.start();
+      await emitFormaEvent({
+        'type': 'error',
+        'value': {'code': code, 'message': 'native detail'},
+      });
+      await pumpEventQueue();
+
+      expect(vm.state.error, expected, reason: 'code $code');
+      testContainer.dispose();
+    }
+
+    // And a code we genuinely have no message for stays generic.
+    final unknown = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(unknown.dispose);
+    final vm = unknown.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await emitFormaEvent({
+      'type': 'error',
+      'value': {'code': 9999, 'message': 'unmapped'},
+    });
+    await pumpEventQueue();
+    expect(vm.state.error, Strings.genericError);
+  });
+
+  test('a dead-session capture request says the session ended', () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      if (call.method == 'beginCapturing') {
+        // Native guard 1004: no live session matched the requested scan.
+        throw PlatformException(code: 'CAPTURE', details: 1004);
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await vm.beginCapturing();
+
+    expect(vm.state.error, Strings.scanSessionEnded);
+    expect(vm.state.isCapturePending, isFalse);
   });
 
   test('the camera-dead probe never overwrites a specific reason', () async {

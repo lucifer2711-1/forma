@@ -334,23 +334,16 @@ final class CaptureService {
       viewport?.unbindPreviews()
       if let scanId {
         resumeWaiters(scanId, with: nil)
+        // Log the raw case as well as the description: the description alone
+        // does not distinguish every failure mode on every SDK.
+        let described = String(describing: error)
         CameraDebugLogger.capture.error(
-          "capture failed (scan \(scanId, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+          "capture failed (scan \(scanId, privacy: .public)): \(described, privacy: .public)"
         )
-        // Object Capture hard-requires ~4 GB free; below that the session
-        // fails instantly with .insufficientStorage (device log 2026-09-17:
-        // 3.43 GB free → failed before the first frame). Surface it
-        // specifically so the UI can tell the user what to do. The case
-        // isn't public in every SDK, so match the description the session
-        // actually prints ("…Error.insufficientStorage(requiredBytes: …)").
-        if String(describing: error).contains("insufficientStorage") {
-          events.emitError(
-            code: 1007,
-            message: "Not enough free space on this iPhone."
-          )
-        } else {
-          events.emitError(code: 1001, message: error.localizedDescription)
-        }
+        events.emitError(
+          code: Self.failureCode(for: described),
+          message: error.localizedDescription
+        )
       }
     default:
       break
@@ -364,6 +357,30 @@ final class CaptureService {
     for waiter in waiters {
       waiter.resume(returning: directory)
     }
+  }
+
+  /// Maps an `ObjectCaptureSession.Error` to the wire contract's error code.
+  ///
+  /// The individual cases are not public in every SDK build, so the
+  /// description is matched instead — it does name them
+  /// ("Error.insufficientStorage(requiredBytes: …)", "Error.trackingFailed",
+  /// …). The distinction matters: every capture failure used to reach the UI
+  /// as one generic "Something went wrong", which hid the cause from the user
+  /// AND from anyone reading the screen (device-test finding 2026-09-18).
+  static func failureCode(for description: String) -> Int {
+    if description.contains("insufficientStorage") {
+      return 1007
+    }
+    if description.contains("trackingFailed") {
+      return 1010
+    }
+    if description.contains("sensorFailed") {
+      return 1009
+    }
+    if description.contains("exceededMaximumNumberOfImages") {
+      return 1008
+    }
+    return 1001
   }
 
   /// Maps a capture state to the wire-contract phase name. Internal (not
