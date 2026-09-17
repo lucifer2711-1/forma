@@ -13,6 +13,10 @@ import simd
 final class ModelViewerHub {
   private var viewers: [ObjectIdentifier: WeakViewer] = [:]
 
+  /// Nonisolated so plugin registration (a synchronous, nonisolated context)
+  /// can create the hub — the same reason `ScanViewportController` does it.
+  nonisolated init() {}
+
   /// Registers a freshly mounted viewer.
   func register(_ viewer: ModelPreviewRenderer) {
     viewers[ObjectIdentifier(viewer)] = WeakViewer(viewer)
