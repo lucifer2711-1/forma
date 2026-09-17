@@ -505,6 +505,77 @@ void main() {
     expect(vm.state.isScanPassComplete, isTrue);
   });
 
+  test('kept directions build the coverage globe; live ones only move it',
+      () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    // Where the phone is pointing: the globe's "you are here" marker, and
+    // explicitly not a side that has been captured.
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 0.0, 'y': 1.0, 'z': 0.0, 'kept': false},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.currentDirection, isNotNull);
+    expect(vm.state.directions, isEmpty);
+    expect(vm.state.coverage.hasData, isFalse);
+
+    // A kept frame is a captured side.
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 0.0, 'y': 1.0, 'z': 0.0, 'kept': true},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.directions, hasLength(1));
+    expect(vm.state.coverage.hasData, isTrue);
+    expect(vm.state.coverage.fraction, greaterThan(0));
+
+    // A malformed sample is dropped rather than poisoning the globe.
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'kept': true},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.directions, hasLength(1));
+  });
+
+  test('the coverage globe opens and closes without troubling native',
+      () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    vm.showCoverage();
+    expect(vm.state.isShowingCoverage, isTrue);
+
+    vm.hideCoverage();
+    expect(vm.state.isShowingCoverage, isFalse);
+
+    // It is drawn from directions native already reported, so no capture
+    // command is involved — a coverage check cannot disturb a running scan.
+    expect(calls, isNot(contains('setCaptureReviewMode')));
+  });
+
+  test('a new session starts with an empty globe', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 0.0, 'y': 1.0, 'z': 0.0, 'kept': true},
+    });
+    await pumpEventQueue();
+    expect(vm.state.coverage.hasData, isTrue);
+
+    await vm.cancel();
+    await vm.start();
+
+    expect(vm.state.directions, isEmpty);
+    expect(vm.state.coverage.hasData, isFalse);
+  });
+
   test('the coverage review reaches the native preview', () async {
     final vm = container.read(captureViewModelProvider.notifier);
     await vm.start();

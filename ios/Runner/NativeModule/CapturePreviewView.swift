@@ -14,10 +14,16 @@ import UIKit
 /// deinitialized ObjectCaptureSession" message instead.
 ///
 /// In `showsPointCloud` mode it renders the session's **point cloud**
-/// instead: the geometry captured so far, with the positions of the shots
-/// taken drawn on it. That is the honest answer to "which sides have I
-/// scanned?" — holes in the cloud are the sides still missing — and it is
-/// Apple's own live 3D, not a mock-up of one.
+/// instead: the geometry captured so far. That is the honest answer to
+/// "what has it actually captured?" — holes in the cloud are the sides still
+/// missing — and it is Apple's own live 3D, not a mock-up of one.
+///
+/// `showShotLocations()` is deliberately NOT used. It draws a line between
+/// every shot taken, which over a real scan becomes a hairball laid over the
+/// geometry: the object stops being readable and the lines say nothing the
+/// dots do not (device-test finding 2026-09-18: "everything is messy, the
+/// connections look disorganised"). Which sides are done is answered by the
+/// coverage globe, which we draw ourselves.
 struct CapturePreviewContent: View {
   let session: ObjectCaptureSession
 
@@ -27,13 +33,7 @@ struct CapturePreviewContent: View {
   var body: some View {
     Group {
       if showsPointCloud {
-        // `showShotLocations` is iOS 18+; on 17 the plain point cloud
-        // still shows the same coverage, minus the shot markers.
-        if #available(iOS 18.0, *) {
-          ObjectCapturePointCloudView(session: session).showShotLocations()
-        } else {
-          ObjectCapturePointCloudView(session: session)
-        }
+        ObjectCapturePointCloudView(session: session)
       } else {
         ObjectCaptureView(session: session)
       }

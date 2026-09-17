@@ -87,11 +87,57 @@ abstract final class Strings {
   static const passCompleteHint =
       'All sides captured. Now aim down at the object from above, then tap '
       'Finish.';
-  static const checkCoverage = 'Check coverage';
+  /// Label for the captured-geometry review (Apple's point cloud).
+  static const geometryPillLabel = 'Geometry';
   static const backToCamera = 'Back to camera';
-  static const coverageHint =
-      'Turn the model around — empty patches are the sides still to scan. '
-      'Go back and capture those.';
+  static const geometryHint =
+      'Captured geometry — hollow patches are the sides still to scan.';
+
+  // Coverage globe: "which sides are done?".
+
+  /// Label for the coverage globe.
+  static const coveragePillLabel = 'Coverage';
+  static const coverageTitle = 'Scan coverage';
+  static const coverageDragHint = 'Drag to turn the object';
+  static const coverageLegendScanned = 'Scanned';
+  static const coverageLegendMissing = 'Still to scan';
+  static const coverageYouAreHere = 'You are here';
+  static const coverageBandTop = 'Top';
+  static const coverageBandSides = 'Sides';
+  static const coverageBandBottom = 'Underside';
+
+  /// Band names as they read inside a sentence.
+  static const coverageNameTop = 'the top';
+  static const coverageNameSides = 'the sides';
+  static const coverageNameBottom = 'the underside';
+
+  /// How much of the object has been scanned, by direction.
+  static String coveragePercent(int percent) =>
+      '$percent% of the object captured';
+
+  /// The compact form shown under the viewfinder while capturing.
+  static String coverageShort(int percent) => '$percent% scanned';
+
+  /// Names the sides the user still has to walk to.
+  static String coverageStillToScan(String bands) =>
+      'Still to scan: $bands. Keep circling until the grey dots fill in.';
+
+  static const coverageCompleteHint =
+      'Every side is captured. Tap Finish to build the model.';
+  static const coverageAlmostHint =
+      'Good coverage. Tap Finish now, or keep circling for a sharper model.';
+  static const coverageEmptyHint =
+      'Walk around the object — the sides you cover fill in here.';
+
+  /// Warns that the direction readout is unavailable, whichever part of it
+  /// is missing, instead of showing a confident "0%" that would be a lie.
+  static const coverageNoDirections =
+      'This phone is not reporting which way it is pointing, so the globe '
+      'cannot show where you have scanned from. A full circle — plus the top '
+      'and the underside — still builds the model.';
+
+  /// The 360° viewer's magnification readout.
+  static String zoomLevel(double factor) => '${factor.toStringAsFixed(1)}×';
 
   /// Live count of frames the session has kept; quiet proof that scanning
   /// is actually happening while the user walks around.
@@ -103,7 +149,7 @@ abstract final class Strings {
 
   // 360° model viewer.
   static const modelViewerHint =
-      'Drag to rotate · pinch, or use + / −, to zoom';
+      'Drag to rotate · pinch, or hold + / −, to zoom in on detail';
   static const resetView = 'Reset view';
   static const zoomIn = 'Zoom in';
   static const zoomOut = 'Zoom out';

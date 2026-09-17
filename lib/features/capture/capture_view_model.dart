@@ -8,6 +8,7 @@ import 'package:forma/core/models/scan.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/haptics/app_haptics.dart';
+import 'package:forma/features/capture/coverage/coverage_map.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
 import 'package:forma/platform/native_bridge/native_bridge.dart';
 
@@ -29,9 +30,18 @@ const _captureRetryDelay = Duration(milliseconds: 300);
 /// up (~2 s) before the refusal is reported.
 const _maxCaptureRetries = 6;
 
+/// How many scanned directions are kept for the coverage globe.
+///
+/// Native already drops anything within 10° of the last direction it sent, so
+/// this is only a backstop against a very long session.
+const _maxDirections = 240;
+
 /// Immutable UI state for the capture flow.
+///
+/// Not a const constructor: [coverage] is derived lazily from [directions],
+/// which is a non-constant computation.
 class CaptureUiState {
-  const CaptureUiState({
+  CaptureUiState({
     this.phase,
     this.feedback = CaptureFeedbackType.none,
     this.isReconstructing = false,
@@ -44,6 +54,9 @@ class CaptureUiState {
     this.shots = 0,
     this.isScanPassComplete = false,
     this.isReviewingModel = false,
+    this.directions = const [],
+    this.currentDirection,
+    this.isShowingCoverage = false,
     this.completedScan,
     this.error,
   });
@@ -91,12 +104,29 @@ class CaptureUiState {
   /// instead of asking for another lap.
   final bool isScanPassComplete;
 
-  /// The preview is showing the captured point cloud (the coverage check)
+  /// The preview is showing the captured point cloud (the geometry check)
   /// rather than the camera feed.
   final bool isReviewingModel;
 
+  /// Directions a frame was kept for — where the object has been scanned from.
+  final List<ScanDirection> directions;
+
+  /// Where the phone is pointed right now, for the globe's "you are here".
+  final ScanDirection? currentDirection;
+
+  /// The coverage globe is on screen.
+  final bool isShowingCoverage;
+
   /// User-facing error message; null when healthy.
   final String? error;
+
+  /// Coverage of the object by direction, from the frames native kept.
+  ///
+  /// Lazy on purpose: the map tests a 96-sector lattice against every
+  /// direction, and the capture screen rebuilds on every phase and feedback
+  /// event — deriving the globe only when the UI asks keeps those rebuilds
+  /// free instead of paying for it on a glance the user never took.
+  late final CoverageMap coverage = CoverageMap.from(directions);
 
   bool get isIdle =>
       phase == null && !isReconstructing && error == null && !isCameraLive;
@@ -114,6 +144,9 @@ class CaptureUiState {
     int? shots,
     bool? isScanPassComplete,
     bool? isReviewingModel,
+    List<ScanDirection>? directions,
+    ScanDirection? currentDirection,
+    bool? isShowingCoverage,
     Scan? completedScan,
     String? error,
     bool clearError = false,
@@ -133,6 +166,9 @@ class CaptureUiState {
       shots: shots ?? this.shots,
       isScanPassComplete: isScanPassComplete ?? this.isScanPassComplete,
       isReviewingModel: isReviewingModel ?? this.isReviewingModel,
+      directions: directions ?? this.directions,
+      currentDirection: currentDirection ?? this.currentDirection,
+      isShowingCoverage: isShowingCoverage ?? this.isShowingCoverage,
       completedScan: completedScan ?? this.completedScan,
       error: clearError ? null : (error ?? this.error),
     );
@@ -159,6 +195,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   final _subs = <StreamSubscription<dynamic>>[];
   Timer? _watchdog;
   Timer? _captureRetry;
+  final _directions = <ScanDirection>[];
   String? _scanId;
   bool _capturingRequested = false;
   bool _startingSession = false;
@@ -177,7 +214,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       }
     });
     _listen();
-    return const CaptureUiState();
+    return CaptureUiState();
   }
 
   void _listen() {
@@ -187,6 +224,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
         state = state.copyWith(feedback: feedback.type);
       }))
       ..add(_bridge.captureProgressUpdates.listen(_onProgress))
+      ..add(_bridge.scanDirectionUpdates.listen(_onDirection))
       ..add(_bridge.reconstructionProgressUpdates.listen((value) {
         _resetWatchdog();
         state = state.copyWith(
@@ -218,6 +256,40 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       shots: progress.shots,
       isScanPassComplete: progress.passComplete,
     );
+  }
+
+  /// Records where the object has been scanned from.
+  ///
+  /// A kept direction is a side the session captured; a live one is simply
+  /// where the phone is pointing, which the globe shows as a moving marker so
+  /// the user can see which way to walk next.
+  void _onDirection(ScanDirection direction) {
+    if (!direction.isKept) {
+      state = state.copyWith(currentDirection: direction);
+      return;
+    }
+    _directions.add(direction);
+    if (_directions.length > _maxDirections) {
+      _directions.removeAt(0);
+    }
+    state = state.copyWith(
+      directions: List<ScanDirection>.unmodifiable(_directions),
+    );
+  }
+
+  /// Shows the coverage globe.
+  ///
+  /// Purely local: the globe is drawn from directions native has already
+  /// reported, so opening it cannot disturb a running capture.
+  void showCoverage() {
+    AppHaptics.tap();
+    state = state.copyWith(isShowingCoverage: true);
+  }
+
+  /// Hides the coverage globe and returns to the live camera feed.
+  void hideCoverage() {
+    AppHaptics.tap();
+    state = state.copyWith(isShowingCoverage: false);
   }
 
   /// Opens or closes the point-cloud coverage review.
@@ -275,6 +347,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       state = state.copyWith(
         isCapturePending: false,
         isReviewingModel: false,
+        isShowingCoverage: false,
       );
       _ensureReconstruction();
       return;
@@ -431,8 +504,9 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       return;
     }
     _startingSession = true;
-    // Fresh session — clear any stale phase/feedback/error left over.
-    state = const CaptureUiState(isSessionStarting: true);
+    // Fresh session — clear any stale phase/feedback/error/coverage left over.
+    _directions.clear();
+    state = CaptureUiState(isSessionStarting: true);
     final generation = ++_sessionStartGeneration;
     try {
       _capturingRequested = false;
@@ -556,10 +630,11 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     _sessionStartGeneration++;
     _watchdog?.cancel();
     _captureRetry?.cancel();
+    _directions.clear();
     if (id != null) {
       unawaited(_bridge.cancelCapture(id));
     }
-    state = const CaptureUiState();
+    state = CaptureUiState();
   }
 
   /// Clears an error and starts a fresh session.

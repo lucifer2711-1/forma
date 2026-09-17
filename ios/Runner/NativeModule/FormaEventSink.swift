@@ -44,6 +44,37 @@ final class FormaEventSink: NSObject, FlutterStreamHandler {
     ])
   }
 
+  /// The direction the object was last scanned from.
+  ///
+  /// `kept` distinguishes a direction Object Capture actually stored a frame
+  /// from one that is only the phone's current aim: the first paints a
+  /// finished side, the second moves a "you are here" marker. Both are the
+  /// same vector (the surface of the object facing the phone), which is what
+  /// makes the coverage globe legible.
+  func emitScanDirection(
+    x: Float,
+    y: Float,
+    z: Float,
+    kept: Bool
+  ) {
+    // Doubles, not Floats: the standard message codec carries NSNumber as a
+    // Double, and a bare Float is the kind of value it drops on the floor.
+    emit([
+      "type": "scan_direction",
+      "value": [
+        "x": Double(x),
+        "y": Double(y),
+        "z": Double(z),
+        "kept": kept,
+      ],
+    ])
+  }
+
+  /// The 360° viewer's current magnification (1 = framed).
+  func emitModelZoom(_ factor: Float) {
+    emit(["type": "model_zoom", "value": Double(factor)])
+  }
+
   func emitProgress(_ value: Double) {
     emit(["type": "reconstruction_progress", "value": value])
   }

@@ -20,7 +20,7 @@ import 'scan_repository_memory.dart';
 /// (a pending timer trips flutter_test's teardown invariant).
 class _NoopCaptureViewModel extends CaptureViewModel {
   @override
-  CaptureUiState build() => const CaptureUiState();
+  CaptureUiState build() => CaptureUiState();
 
   @override
   Future<void> start() async {}
@@ -180,8 +180,20 @@ void main() {
 
     // Pinch is the primary gesture, but a zoom that depends entirely on a
     // platform gesture being delivered left the user unable to zoom at all
-    // (device-test finding 2026-09-18).
-    expect(zoomScales, [1.25, 0.8]);
+    // (device-test finding 2026-09-18). The step is deliberately large: the
+    // old 1.25 step ran into the old zoom stop after two taps, which is why
+    // the buttons read as "not working" when they were working.
+    expect(zoomScales, [1.4, closeTo(1 / 1.4, 1e-9)]);
+
+    // The level readout follows what native reports, not what Dart asked for:
+    // that is what separates a pinch native ignored from one the app never
+    // delivered.
+    expect(find.text(Strings.zoomLevel(1)), findsOneWidget);
+    await tester.runAsync(
+      () => emitFormaEvent({'type': 'model_zoom', 'value': 2.5}),
+    );
+    await tester.pump();
+    expect(find.text(Strings.zoomLevel(2.5)), findsOneWidget);
 
     debugDefaultTargetPlatformOverride = null;
   });

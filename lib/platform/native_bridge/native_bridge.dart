@@ -50,6 +50,19 @@ abstract interface class NativeBridge {
   /// which work even where a native gesture cannot be delivered.
   Future<void> zoomModelView(double scale);
 
+  /// The 360° viewer's magnification after every change (1 = framed).
+  ///
+  /// Reported by native, so the level readout follows a pinch as well as
+  /// the buttons — and so a zoom command that never arrives is visible
+  /// instead of silent.
+  Stream<double> get modelZoomUpdates;
+
+  /// Directions the object has been scanned from, for the coverage globe.
+  ///
+  /// Emits one sample per frame Object Capture keeps, plus a throttled live
+  /// sample of where the phone is pointed right now.
+  Stream<ScanDirection> get scanDirectionUpdates;
+
   /// Switches the capture preview between the live camera feed ([enabled]
   /// false) and the captured point cloud (`true`).
   ///

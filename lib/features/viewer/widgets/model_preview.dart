@@ -25,7 +25,18 @@ class ModelPreview extends StatelessWidget {
       // The native side reads {"path": …} from the creation parameters.
       creationParams: <String, Object?>{'path': modelPath},
       creationParamsCodec: const StandardMessageCodec(),
-      gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      // Eager, not the default empty set.
+      //
+      // With no factory registered, touches reach the platform view only once
+      // Flutter's own gesture arena has resolved — and its verdict arrives
+      // per pointer sequence, which is why a one-finger orbit began while the
+      // second finger of a pinch was still queued and the zoom never fired
+      // (device-test finding 2026-09-18: "rotation works, pinch does not").
+      // An eager recogniser wins the arena on touch-down, so the native view
+      // owns the whole sequence from the first frame.
+      gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+        Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+      },
     );
   }
 }

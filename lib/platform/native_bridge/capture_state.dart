@@ -81,6 +81,49 @@ class CaptureProgress {
   final bool passComplete;
 }
 
+/// A direction on the scan globe: the object's surface that was facing the
+/// phone, as a unit vector in native's gravity-aligned frame (z is up).
+///
+/// [isKept] separates the two signals the bridge carries on one event: a
+/// direction Object Capture actually kept a frame for (a finished side) and
+/// the phone's live aim (the "you are here" marker).
+class ScanDirection {
+  /// Creates a direction.
+  const ScanDirection({
+    required this.x,
+    required this.y,
+    required this.z,
+    this.isKept = true,
+  });
+
+  /// X component (horizontal).
+  final double x;
+
+  /// Y component (horizontal).
+  final double y;
+
+  /// Z component (vertical — gravity-up, the axis the top/bottom bands use).
+  final double z;
+
+  /// Whether a frame was kept for this direction.
+  final bool isKept;
+
+  /// Dot product with [other] — 1 when the two point the same way.
+  double dot(ScanDirection other) => x * other.x + y * other.y + z * other.z;
+
+  /// Squared length; 1 for a unit vector.
+  double get squaredLength => x * x + y * y + z * z;
+
+  /// Whether the vector is usable (native normalises, so this only rejects
+  /// a zero/invalid sample).
+  bool get isUsable => squaredLength > 0.25;
+
+  @override
+  String toString() =>
+      'ScanDirection(${x.toStringAsFixed(2)}, ${y.toStringAsFixed(2)}, '
+      '${z.toStringAsFixed(2)}${isKept ? '' : ', live'})';
+}
+
 /// A native-side error event.
 class BridgeError {
   /// Creates a bridge error.

@@ -28,6 +28,7 @@
 		F0000000000000000000B00A /* CapturePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A00A /* CapturePreviewView.swift */; };
 		F0000000000000000000B00B /* CameraDebugLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A00B /* CameraDebugLogger.swift */; };
 		F0000000000000000000B00C /* ModelPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A00C /* ModelPreviewView.swift */; };
+		F0000000000000000000B00D /* ScanDirectionRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A00D /* ScanDirectionRecorder.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +84,7 @@
 		F0000000000000000000A00A /* CapturePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/CapturePreviewView.swift; sourceTree = "<group>"; };
 		F0000000000000000000A00B /* CameraDebugLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/CameraDebugLogger.swift; sourceTree = "<group>"; };
 		F0000000000000000000A00C /* ModelPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/ModelPreviewView.swift; sourceTree = "<group>"; };
+		F0000000000000000000A00D /* ScanDirectionRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeModule/ScanDirectionRecorder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -160,6 +162,7 @@
 				F0000000000000000000A00A /* CapturePreviewView.swift */,
 				F0000000000000000000A00B /* CameraDebugLogger.swift */,
 				F0000000000000000000A00C /* ModelPreviewView.swift */,
+				F0000000000000000000A00D /* ScanDirectionRecorder.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -332,6 +335,7 @@
 				F0000000000000000000B00A /* CapturePreviewView.swift in Sources */,
 				F0000000000000000000B00B /* CameraDebugLogger.swift in Sources */,
 				F0000000000000000000B00C /* ModelPreviewView.swift in Sources */,
+				F0000000000000000000B00D /* ScanDirectionRecorder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

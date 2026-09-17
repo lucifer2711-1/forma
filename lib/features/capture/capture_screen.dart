@@ -14,6 +14,7 @@ import 'package:forma/features/capture/capture_view_model.dart';
 import 'package:forma/features/capture/widgets/camera_health_overlay.dart';
 import 'package:forma/features/capture/widgets/camera_preview.dart';
 import 'package:forma/features/capture/widgets/centered_message.dart';
+import 'package:forma/features/capture/widgets/coverage_panel.dart';
 import 'package:forma/features/capture/widgets/reconstruction_panel.dart';
 import 'package:forma/features/viewer/model_viewer_screen.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
@@ -57,6 +58,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(captureViewModelProvider);
+    final colors = FormaColors.of(context);
     ref.listen(captureViewModelProvider, (previous, next) {
       final wasCompleted = previous?.isCompleted ?? false;
       if (next.isCompleted && !wasCompleted) {
@@ -97,6 +99,22 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
             isTrackingInitializing: state.isTrackingInitializing,
           ),
           _buildOverlay(state),
+          // The coverage globe sits above everything else: it is an opaque
+          // review screen, and while it is open the camera underneath is not
+          // what the user is looking at.
+          if (state.isShowingCoverage && state.error == null)
+            ColoredBox(
+              color: colors.bg,
+              child: CoveragePanel(
+                map: state.coverage,
+                shots: state.shots,
+                passComplete: state.isScanPassComplete,
+                currentDirection: state.currentDirection,
+                onClose: () => ref
+                    .read(captureViewModelProvider.notifier)
+                    .hideCoverage(),
+              ),
+            ),
         ],
       ),
     );
@@ -264,22 +282,34 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     );
   }
 
-  /// Live frame count while capturing.
+  /// Live proof that the scan is building, while capturing.
   ///
-  /// Object Capture gives no percentage for "how much of the object is
-  /// done", so nothing here pretends to show one: this is the honest
-  /// number of frames the session has kept, which is enough for the user to
-  /// see that walking around is actually building the scan.
+  /// The frame count is the session's own number. The percentage is our own
+  /// measurement, but an honest one: it is the share of directions a frame has
+  /// actually been kept for, not an interpolation of anything — which is what
+  /// makes it usable as "keep going" feedback instead of decoration.
   Widget _buildProgressCaption(CaptureUiState state) {
     if (state.phase != CapturePhase.capturing || state.shots == 0) {
       return const SizedBox.shrink();
     }
     final colors = FormaColors.of(context);
+    final coverage = state.coverage;
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.md),
-      child: Text(
-        Strings.photosCaptured(state.shots),
-        style: AppTypography.caption.copyWith(color: colors.textSecondary),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: AppSpacing.sm,
+        children: [
+          Text(
+            Strings.photosCaptured(state.shots),
+            style: AppTypography.caption.copyWith(color: colors.textSecondary),
+          ),
+          if (coverage.hasData)
+            Text(
+              Strings.coverageShort((coverage.fraction * 100).round()),
+              style: AppTypography.caption.copyWith(color: colors.accent),
+            ),
+        ],
       ),
     );
   }
@@ -289,7 +319,41 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildCoverageButton(state),
+          // Two different questions, two answers: "which sides are done?"
+          // (the globe) and "what did it actually capture?" (the geometry).
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: _buildCoverageButton(
+                  icon: Icons.public,
+                  label: Strings.coveragePillLabel,
+                  onPressed: () => ref
+                      .read(captureViewModelProvider.notifier)
+                      .showCoverage(),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: _buildCoverageButton(
+                  icon: state.isReviewingModel
+                      ? Icons.camera_alt_outlined
+                      : Icons.threed_rotation,
+                  label: state.isReviewingModel
+                      ? Strings.backToCamera
+                      : Strings.geometryPillLabel,
+                  onPressed: () {
+                    AppHaptics.tap();
+                    unawaited(
+                      ref
+                          .read(captureViewModelProvider.notifier)
+                          .toggleReviewMode(),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.md),
           _buildFinishButton(),
         ],
@@ -329,48 +393,36 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     }
   }
 
-  /// Toggles the point-cloud coverage review.
-  ///
-  /// The scan is only as good as its weakest side, and there was no way to
-  /// see which sides were still missing — which is what made finished models
-  /// look imprecise (device-test finding 2026-09-18). The point cloud is
-  /// Apple's own live geometry, so it cannot flatter the scan.
-  Widget _buildCoverageButton(CaptureUiState state) {
+  /// A pill button that reviews what the scan has captured so far.
+  Widget _buildCoverageButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
     final colors = FormaColors.of(context);
-    final isReviewing = state.isReviewingModel;
     return Semantics(
       button: true,
+      label: label,
       child: Material(
         color: colors.bgElevated.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(AppRadii.pill),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () {
-            AppHaptics.tap();
-            unawaited(
-              ref.read(captureViewModelProvider.notifier).toggleReviewMode(),
-            );
-          },
+          onTap: onPressed,
           child: Padding(
             padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xl,
+              horizontal: AppSpacing.lg,
               vertical: AppSpacing.md,
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  isReviewing
-                      ? Icons.camera_alt_outlined
-                      : Icons.threed_rotation,
-                  size: 20,
-                  color: colors.textPrimary,
-                ),
+                Icon(icon, size: 20, color: colors.textPrimary),
                 const SizedBox(width: AppSpacing.sm),
                 Text(
-                  isReviewing
-                      ? Strings.backToCamera
-                      : Strings.checkCoverage,
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTypography.headline.copyWith(
                     color: colors.textPrimary,
                   ),
@@ -418,7 +470,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     // While the point cloud is on screen the camera is not, so live framing
     // feedback would be guidance about a view the user cannot see.
     if (state.isReviewingModel) {
-      return Strings.coverageHint;
+      return Strings.geometryHint;
     }
     // The feedback names describe where the object is, so the guidance is the
     // opposite direction. These were inverted: `objectTooClose` told the user

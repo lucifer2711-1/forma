@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forma/app.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
+import 'package:forma/features/capture/widgets/coverage_globe.dart';
 
 import 'native_channel_mock.dart';
 import 'scan_repository_memory.dart';
@@ -150,13 +151,47 @@ void main() {
     expect(find.text(Strings.passCompleteHint), findsOneWidget);
     expect(find.text(Strings.capturingHint), findsNothing);
 
-    // The coverage check swaps the live feed for the captured point cloud:
-    // holes in the geometry are the sides still missing, so the user stops
-    // re-scanning sides that are already done.
-    await tester.tap(find.text(Strings.checkCoverage));
+    // Directions mark which sides of the object are done: the session reports
+    // one per frame it keeps, and the share of the globe they cover is the
+    // honest "how far along am I" number.
+    await tester.runAsync(
+      () => emitFormaEvent({
+        'type': 'scan_direction',
+        'value': {'x': 0.0, 'y': 1.0, 'z': 0.0, 'kept': true},
+      }),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
-    expect(find.text(Strings.coverageHint), findsOneWidget);
+    expect(find.textContaining('scanned'), findsOneWidget);
+
+    // The coverage globe opens purely locally — checking coverage must never
+    // disturb a running capture.
+    await tester.tap(find.text(Strings.coveragePillLabel));
+    await tester.pump();
+    expect(find.text(Strings.coverageTitle), findsOneWidget);
+    expect(find.text(Strings.coverageBandTop), findsOneWidget);
+    expect(find.text(Strings.coverageBandSides), findsOneWidget);
+    expect(find.text(Strings.coverageBandBottom), findsOneWidget);
+    expect(find.textContaining('of the object captured'), findsOneWidget);
+    expect(find.byType(CoverageGlobe), findsOneWidget);
+    // The sides still missing are named, so the user knows where to walk.
+    expect(
+      find.textContaining(Strings.coverageNameBottom),
+      findsOneWidget,
+    );
+
+    // Closing it returns to the live feed.
+    await tester.tap(find.bySemanticsLabel(Strings.backToCamera));
+    await tester.pump();
+    expect(find.text(Strings.coverageTitle), findsNothing);
+
+    // The geometry check swaps the live feed for the captured point cloud:
+    // holes in the geometry are the sides still missing, so the user stops
+    // re-scanning sides that are already done.
+    await tester.tap(find.text(Strings.geometryPillLabel));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(Strings.geometryHint), findsOneWidget);
     expect(find.text(Strings.backToCamera), findsOneWidget);
     expect(calls, contains('setCaptureReviewMode'));
     expect(reviewArgs, {'enabled': true});

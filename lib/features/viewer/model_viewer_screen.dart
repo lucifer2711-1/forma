@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -40,6 +41,32 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
   /// delays the honest answer for the common case of a missing file.
   late final bool _hasModel = _modelExists();
 
+  /// The viewer's magnification, as reported by the native renderer.
+  ///
+  /// Read from native rather than counted here so the number follows a pinch
+  /// as well as the buttons — and so a zoom command that never arrives shows
+  /// as a level that never moves, instead of leaving the user to guess
+  /// whether the gesture or the app is at fault.
+  double _zoomFactor = 1;
+
+  StreamSubscription<double>? _zoomSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _zoomSub = ref.read(nativeBridgeProvider).modelZoomUpdates.listen((factor) {
+      if (mounted) {
+        setState(() => _zoomFactor = factor);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    unawaited(_zoomSub?.cancel());
+    super.dispose();
+  }
+
   bool _modelExists() {
     final path = widget.scan.modelPath;
     if (path == null) {
@@ -67,6 +94,10 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
   /// rotated but not zoomed).
   Future<void> _zoom(double scale) =>
       _run((bridge) => bridge.zoomModelView(scale));
+
+  /// One step of the zoom buttons — a step big enough to be unmistakable, so
+  /// the button doing nothing and the button working are never confused.
+  void _zoomStep(double scale) => unawaited(_zoom(scale));
 
   Future<void> _run(Future<void> Function(NativeBridge bridge) action) async {
     AppHaptics.tap();
@@ -166,18 +197,40 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
   Widget _buildZoomControls(FormaColors colors) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _PillIconButton(
+          _buildZoomLevel(colors),
+          const SizedBox(height: AppSpacing.md),
+          _HoldButton(
             icon: Icons.add,
             semanticLabel: Strings.zoomIn,
-            onPressed: () => _zoom(1.25),
+            onStep: () => _zoomStep(1.4),
           ),
           const SizedBox(height: AppSpacing.md),
-          _PillIconButton(
+          _HoldButton(
             icon: Icons.remove,
             semanticLabel: Strings.zoomOut,
-            onPressed: () => _zoom(0.8),
+            onStep: () => _zoomStep(1 / 1.4),
           ),
         ],
+      );
+
+  /// The current magnification. Proof the zoom is doing something, and the
+  /// only way to tell a pinch that native ignored from one the app never saw.
+  Widget _buildZoomLevel(FormaColors colors) => Semantics(
+        label: Strings.zoomLevel(_zoomFactor),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: colors.bgElevated.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+          ),
+          child: Text(
+            Strings.zoomLevel(_zoomFactor),
+            style: AppTypography.caption.copyWith(color: colors.textPrimary),
+          ),
+        ),
       );
 
   Widget _buildGestureHint(FormaColors colors) => Container(
@@ -195,6 +248,80 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
           style: AppTypography.headline.copyWith(color: colors.textPrimary),
         ),
       );
+}
+
+/// A zoom button that keeps stepping while it is held down.
+///
+/// The viewer's zoom range is wide on purpose (the object can be pulled right
+/// up to the camera), and reaching the far end a tap at a time is tedious —
+/// holding the button walks it there.
+class _HoldButton extends StatefulWidget {
+  const _HoldButton({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onStep,
+  });
+
+  final IconData icon;
+  final String semanticLabel;
+  final VoidCallback onStep;
+
+  @override
+  State<_HoldButton> createState() => _HoldButtonState();
+}
+
+class _HoldButtonState extends State<_HoldButton> {
+  /// Delay before the hold starts repeating, so a plain tap steps once.
+  static const _holdDelay = Duration(milliseconds: 320);
+  static const _repeatEvery = Duration(milliseconds: 90);
+
+  Timer? _startTimer;
+  Timer? _repeatTimer;
+
+  void _press() {
+    widget.onStep();
+    _cancel();
+    _startTimer = Timer(_holdDelay, () {
+      _repeatTimer = Timer.periodic(_repeatEvery, (_) => widget.onStep());
+    });
+  }
+
+  void _cancel() {
+    _startTimer?.cancel();
+    _startTimer = null;
+    _repeatTimer?.cancel();
+    _repeatTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = FormaColors.of(context);
+    return Semantics(
+      button: true,
+      label: widget.semanticLabel,
+      child: Material(
+        color: colors.bgElevated.withValues(alpha: 0.72),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTapDown: (_) => _press(),
+          onTapUp: (_) => _cancel(),
+          onTapCancel: _cancel,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(widget.icon, size: 22, color: colors.textPrimary),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Blurred circular icon button, matching the capture screen's chrome.

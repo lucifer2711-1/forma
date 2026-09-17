@@ -14,9 +14,10 @@ import 'package:forma/platform/native_bridge/native_bridge.dart';
 ///   `{"type": "phase", "value": "capturing"}` etc.
 ///
 /// Event types: `phase` (CapturePhase name), `feedback` (CaptureFeedbackType
-/// name), `capture_progress` ({shots, passComplete}),
-/// `reconstruction_progress` (double), `reconstruction_complete`
-/// (model file path), `error` ({code, message}).
+/// name), `capture_progress` ({shots, passComplete}), `scan_direction`
+/// ({x, y, z, kept}), `model_zoom` (double), `reconstruction_progress`
+/// (double), `reconstruction_complete` (model file path),
+/// `error` ({code, message}).
 class IosNativeBridge implements NativeBridge {
   IosNativeBridge({MethodChannel? commands, EventChannel? events})
       : _commands = commands ?? const MethodChannel('com.forma.app/native'),
@@ -29,6 +30,8 @@ class IosNativeBridge implements NativeBridge {
   final _feedbackController = StreamController<CaptureFeedback>.broadcast();
   final _captureProgressController =
       StreamController<CaptureProgress>.broadcast();
+  final _directionController = StreamController<ScanDirection>.broadcast();
+  final _modelZoomController = StreamController<double>.broadcast();
   final _progressController = StreamController<double>.broadcast();
   final _completeController = StreamController<String>.broadcast();
   final _errorController = StreamController<BridgeError>.broadcast();
@@ -69,6 +72,21 @@ class IosNativeBridge implements NativeBridge {
                     false,
           ),
         );
+      case 'scan_direction':
+        final payload = event['value'];
+        if (payload is Map) {
+          final direction = ScanDirection(
+            x: (payload['x'] as num?)?.toDouble() ?? 0,
+            y: (payload['y'] as num?)?.toDouble() ?? 0,
+            z: (payload['z'] as num?)?.toDouble() ?? 0,
+            isKept: payload['kept'] as bool? ?? true,
+          );
+          if (direction.isUsable) {
+            _directionController.add(direction);
+          }
+        }
+      case 'model_zoom':
+        _modelZoomController.add((event['value'] as num?)?.toDouble() ?? 1);
       case 'reconstruction_progress':
         _progressController.add((event['value'] as num?)?.toDouble() ?? 0);
       case 'reconstruction_complete':
@@ -226,6 +244,18 @@ class IosNativeBridge implements NativeBridge {
       _invoke<void>('setCaptureReviewMode', {'enabled': enabled});
 
   @override
+  Stream<double> get modelZoomUpdates {
+    _ensureSubscribed();
+    return _modelZoomController.stream;
+  }
+
+  @override
+  Stream<ScanDirection> get scanDirectionUpdates {
+    _ensureSubscribed();
+    return _directionController.stream;
+  }
+
+  @override
   Future<bool> hasActiveCaptureSession() async {
     try {
       return await _commands.invokeMethod<bool>('hasActiveCaptureSession') ??
@@ -244,6 +274,8 @@ class IosNativeBridge implements NativeBridge {
     unawaited(_phaseController.close());
     unawaited(_feedbackController.close());
     unawaited(_captureProgressController.close());
+    unawaited(_directionController.close());
+    unawaited(_modelZoomController.close());
     unawaited(_progressController.close());
     unawaited(_completeController.close());
     unawaited(_errorController.close());

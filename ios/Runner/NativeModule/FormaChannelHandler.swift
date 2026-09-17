@@ -53,6 +53,15 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
       }
     }
     let modelViewerHub = ModelViewerHub()
+    // The viewer reports every zoom change back to Dart, so the on-screen
+    // level readout follows a pinch as well as the +/− buttons. The hub is
+    // main-actor isolated and registration is not, and plugin registration
+    // already runs on the platform thread — so the hop is `assumeIsolated`.
+    MainActor.assumeIsolated {
+      modelViewerHub.onZoomChanged = { [weak events] factor in
+        events?.emitModelZoom(factor)
+      }
+    }
     let handler = FormaChannelHandler(
       events: events,
       exportService: exportService,

@@ -13,6 +13,12 @@ import simd
 final class ModelViewerHub {
   private var viewers: [ObjectIdentifier: WeakViewer] = [:]
 
+  /// Called with a viewer's current magnification after every change, so
+  /// the Dart chrome can show the zoom level. Without a readout a zoom that
+  /// silently did nothing looked identical to one the gestures never
+  /// delivered (device-test finding 2026-09-18: "+ / − do not work").
+  var onZoomChanged: ((Float) -> Void)?
+
   /// Nonisolated so plugin registration (a synchronous, nonisolated context)
   /// can create the hub — the same reason `ScanViewportController` does it.
   nonisolated init() {}
@@ -31,6 +37,10 @@ final class ModelViewerHub {
   /// Returns every mounted viewer to its framing position and angle.
   func resetViews() {
     prune()
+    guard !viewers.isEmpty else {
+      logNoViewer("reset")
+      return
+    }
     for viewer in viewers.values.compactMap(\.viewer) {
       viewer.resetView()
     }
@@ -42,9 +52,28 @@ final class ModelViewerHub {
   /// but the buttons guarantee a way to zoom on any device/OS build.
   func zoomAll(by scale: Float) {
     prune()
+    guard !viewers.isEmpty else {
+      // The command arrived with nothing mounted: the platform view never
+      // registered (or was disposed). Logged at error level so it reaches
+      // the device log — this is the difference between "Dart never called
+      // native" and "native ignored it".
+      logNoViewer("zoom by \(scale)")
+      return
+    }
     for viewer in viewers.values.compactMap(\.viewer) {
       viewer.zoom(by: scale)
     }
+  }
+
+  /// Reports a viewer's magnification to Dart.
+  func reportZoom(_ factor: Float) {
+    onZoomChanged?(factor)
+  }
+
+  private func logNoViewer(_ what: String) {
+    CameraDebugLogger.capture.error(
+      "model viewer \(what, privacy: .public): no live viewer registered"
+    )
   }
 
   private func prune() {
@@ -80,6 +109,9 @@ final class ModelPreviewRenderer: NSObject, UIGestureRecognizerDelegate {
   private let arView: ARView
   private let statusLabel: UILabel
 
+  /// The hub that reports this viewer's zoom back to Dart.
+  private let hub: ModelViewerHub
+
   /// Rotating node holding the model, centred on its own origin.
   private let modelNode = Entity()
 
@@ -93,16 +125,36 @@ final class ModelPreviewRenderer: NSObject, UIGestureRecognizerDelegate {
   private var yaw: Float = 0
   private var pitch: Float = 0
 
+  /// Last magnification reported to Dart, so a pinch does not spam the
+  /// event channel once per frame.
+  private var reportedZoom: Float = 1
+
   private static let radiansPerPoint: Float = 0.01
   private static let maxPitch: Float = 1.2
 
   /// How close the model may come to the camera, and how far it may sit,
   /// as multiples of its own radius.
-  private static let minDistanceFactor: Float = 1.4
-  private static let maxDistanceFactor: Float = 8
+  ///
+  /// These were 1.4 … 8: only a 1.86× magnification was reachable, so the
+  /// zoom hit its stop after two taps and a pinch had nowhere to go —
+  /// indistinguishable from a zoom that does not work at all (device-test
+  /// finding 2026-09-18: "I cannot see the object in more detail"). The
+  /// range now runs from right at the surface (0.8 × radius, so the object
+  /// overflows the screen and detail is inspectable) out to 20 × radius.
+  private static let minDistanceFactor: Float = 0.8
+  private static let maxDistanceFactor: Float = 20
   private static let framingDistanceFactor: Float = 2.6
 
-  init(frame: CGRect) {
+  /// Never let the camera reach the near clip plane on a very small model.
+  private static let minAbsoluteDistance: Float = 0.015
+
+  var framingDistance: Float { modelRadius * Self.framingDistanceFactor }
+
+  /// Current magnification relative to the framing view (1 = framed).
+  var zoomFactor: Float { framingDistance / max(distance, 0.0001) }
+
+  init(frame: CGRect, hub: ModelViewerHub) {
+    self.hub = hub
     arView = ARView(
       frame: frame,
       cameraMode: .nonAR,
@@ -111,6 +163,10 @@ final class ModelPreviewRenderer: NSObject, UIGestureRecognizerDelegate {
     arView.backgroundColor = .black
     arView.environment.background = .color(.black)
     arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    // A pinch recogniser needs two simultaneous touches. Flutter's iOS
+    // platform-view wrapper delivers them, but the embedded view must opt
+    // in or UIKit reports only the first touch of the sequence.
+    arView.isMultipleTouchEnabled = true
 
     statusLabel = UILabel(frame: .zero)
     statusLabel.textColor = .white
@@ -202,23 +258,42 @@ final class ModelPreviewRenderer: NSObject, UIGestureRecognizerDelegate {
   func resetView() {
     yaw = 0
     pitch = 0
-    distance = modelRadius * Self.framingDistanceFactor
+    distance = framingDistance
     applyTransform()
+    reportZoom()
   }
 
   /// Multiplies the zoom by [scale]: > 1 pulls the model closer, < 1 away.
   ///
   /// Clamped to [minDistanceFactor, maxDistanceFactor] × the model's radius
-  /// so the object can neither fill the screen with its interior nor shrink
-  /// to a dot.
+  /// so the object can neither pass through the camera nor shrink to a dot.
   func zoom(by scale: Float) {
     guard scale > 0, scale != 1 else {
       return
     }
-    let minDistance = modelRadius * Self.minDistanceFactor
+    let minDistance = max(
+      modelRadius * Self.minDistanceFactor,
+      Self.minAbsoluteDistance
+    )
     let maxDistance = modelRadius * Self.maxDistanceFactor
+    let previous = distance
     distance = min(max(distance / scale, minDistance), maxDistance)
     applyTransform()
+    CameraDebugLogger.capture.info(
+      "model viewer zoom ×\(scale, privacy: .public): distance \(previous, privacy: .public) → \(self.distance, privacy: .public) (×\(self.zoomFactor, privacy: .public))"
+    )
+    reportZoom()
+  }
+
+  /// Publishes the magnification when it has actually moved, so the on-screen
+  /// readout follows a pinch instead of only the buttons.
+  private func reportZoom() {
+    let factor = zoomFactor
+    guard abs(factor - reportedZoom) >= 0.05 else {
+      return
+    }
+    reportedZoom = factor
+    hub.reportZoom(factor)
   }
 
   // MARK: Gestures
@@ -238,6 +313,12 @@ final class ModelPreviewRenderer: NSObject, UIGestureRecognizerDelegate {
     let scale = Float(gesture.scale)
     // Reset every callback: `scale` is cumulative since the gesture began.
     gesture.scale = 1
+    if gesture.state == .began {
+      // Logged so a pinch that never reaches the renderer is visible in the
+      // device log instead of being guessed at (device-test finding
+      // 2026-09-18: the model rotated but never zoomed).
+      CameraDebugLogger.capture.info("model viewer pinch began")
+    }
     zoom(by: scale)
   }
 
@@ -321,7 +402,7 @@ final class ModelPreviewPlatformView: NSObject, FlutterPlatformView {
 
   init(frame: CGRect, viewId: Int64, hub: ModelViewerHub, path: String?) {
     let renderer = MainActor.assumeIsolated {
-      ModelPreviewRenderer(frame: frame)
+      ModelPreviewRenderer(frame: frame, hub: hub)
     }
     self.renderer = renderer
     self.hub = hub

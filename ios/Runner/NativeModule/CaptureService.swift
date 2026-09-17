@@ -38,6 +38,13 @@ final class CaptureService {
   /// property read on the main actor.
   private static let statePollNanoseconds: UInt64 = 200_000_000
 
+  /// Tracks where the phone is aimed, for the coverage globe.
+  private let directions = ScanDirectionRecorder()
+
+  /// When the last "you are here" direction was sent, so the live marker
+  /// updates a few times a second instead of 30 times.
+  private var lastLiveDirectionAt: Date?
+
   nonisolated init(events: FormaEventSink, viewport: ScanViewportController?) {
     self.events = events
     self.viewport = viewport
@@ -122,6 +129,10 @@ final class CaptureService {
     lastHandledPhase = nil
     lastShotsTaken = -1
     lastPassComplete = false
+    lastLiveDirectionAt = nil
+    // Direction tracking starts with the session: the coverage globe is
+    // built from where the user stood for each frame Object Capture kept.
+    directions.start()
 
     // Make the capture itself as effortless as the OS allows: automatic
     // capture (no per-frame tapping) plus the session's own haptics so the
@@ -237,6 +248,8 @@ final class CaptureService {
       lastHandledPhase = nil
       lastShotsTaken = -1
       lastPassComplete = false
+      lastLiveDirectionAt = nil
+      directions.stop()
       stateTask?.cancel()
       feedbackTask?.cancel()
       statePollTask?.cancel()
@@ -324,12 +337,54 @@ final class CaptureService {
   private func publishProgress(from session: ObjectCaptureSession) {
     let shots = session.numberOfShotsTaken
     let passComplete = session.userCompletedScanPass
-    guard shots != lastShotsTaken || passComplete != lastPassComplete else {
+    // `lastShotsTaken` starts at -1 (nothing reported for this session), so
+    // the first poll must not read "0 shots" as "a frame was just kept" —
+    // that would paint a covered side before the user has aimed at anything.
+    let isNewShot = lastShotsTaken >= 0 && shots > lastShotsTaken
+    if shots != lastShotsTaken || passComplete != lastPassComplete {
+      lastShotsTaken = shots
+      lastPassComplete = passComplete
+      events.emitCaptureProgress(shots: shots, passComplete: passComplete)
+    }
+    publishDirection(from: session, kept: isNewShot)
+  }
+
+  /// Reports where the phone is pointed.
+  ///
+  /// Two different signals travel on one event: a frame Object Capture
+  /// actually kept (`kept: true`) paints a finished side of the object on
+  /// the coverage globe, while the live throttle (`kept: false`) moves the
+  /// "you are here" marker — which is what tells the user which side to walk
+  /// to next instead of re-scanning a side that is already full.
+  private func publishDirection(
+    from session: ObjectCaptureSession,
+    kept: Bool
+  ) {
+    guard directions.isRunning else {
       return
     }
-    lastShotsTaken = shots
-    lastPassComplete = passComplete
-    events.emitCaptureProgress(shots: shots, passComplete: passComplete)
+    if kept, let direction = directions.nextUnreportedDirection() {
+      lastLiveDirectionAt = Date()
+      events.emitScanDirection(
+        x: direction.x,
+        y: direction.y,
+        z: direction.z,
+        kept: true
+      )
+      return
+    }
+    guard Self.phaseName(session.state) == "capturing" else {
+      return
+    }
+    let now = Date()
+    if let last = lastLiveDirectionAt, now.timeIntervalSince(last) < 0.4 {
+      return
+    }
+    guard let live = directions.surfaceDirection else {
+      return
+    }
+    lastLiveDirectionAt = now
+    events.emitScanDirection(x: live.x, y: live.y, z: live.z, kept: false)
   }
 
   /// Asks the session to begin detecting, only while it is actually ready.
@@ -363,6 +418,7 @@ final class CaptureService {
       // a finished session (device-test finding 2026-09-18: black feed
       // with "Cannot make a view for a deinitialized ObjectCaptureSession").
       viewport?.unbindPreviews()
+      directions.stop()
       if let scanId {
         completedScans.insert(scanId)
         resumeWaiters(scanId, with: imagesDirectories[scanId])
@@ -371,6 +427,7 @@ final class CaptureService {
       break
     case .failed(let error):
       viewport?.unbindPreviews()
+      directions.stop()
       if let scanId {
         resumeWaiters(scanId, with: nil)
         // Log the raw case as well as the description: the description alone
