@@ -79,12 +79,34 @@ abstract final class Strings {
   static const torchLabel = 'Flashlight';
   static const torchComingSoon = 'Torch arrives in the next build';
 
+  // Capture coverage guidance.
+
+  /// Shown once the session reports a completed 360° pass. The top and the
+  /// underside are the sides a single waist-high circle misses, which is
+  /// what makes a finished scan look "imprecise".
+  static const passCompleteHint =
+      'All sides captured. Now aim down at the object from above, then tap '
+      'Finish.';
+  static const checkCoverage = 'Check coverage';
+  static const backToCamera = 'Back to camera';
+  static const coverageHint =
+      'Turn the model around — empty patches are the sides still to scan. '
+      'Go back and capture those.';
+
+  /// Live count of frames the session has kept; quiet proof that scanning
+  /// is actually happening while the user walks around.
+  static String photosCaptured(int count) =>
+      count == 1 ? '1 photo captured' : '$count photos captured';
+
   /// Accessibility label for the capture step indicator.
   static String captureStepLabel(int step) => 'Step $step of 3';
 
   // 360° model viewer.
-  static const modelViewerHint = 'Drag to rotate · pinch to zoom';
+  static const modelViewerHint =
+      'Drag to rotate · pinch, or use + / −, to zoom';
   static const resetView = 'Reset view';
+  static const zoomIn = 'Zoom in';
+  static const zoomOut = 'Zoom out';
   static const modelMissingTitle = 'Model not available';
   static const modelMissingSubtitle =
       'The 3D file for this scan is missing. Scan the object again to '

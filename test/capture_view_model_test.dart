@@ -479,6 +479,79 @@ void main() {
     expect(reconstructed, ['scan-1']);
   });
 
+  test('capture progress drives the guidance and the pass milestone',
+      () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    await emitFormaEvent({
+      'type': 'capture_progress',
+      'value': {'shots': 37, 'passComplete': false},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.shots, 37);
+    expect(vm.state.isScanPassComplete, isFalse);
+
+    // Apple's own milestone: a full circle is captured, so the guidance can
+    // stop asking for another lap.
+    await emitFormaEvent({
+      'type': 'capture_progress',
+      'value': {'shots': 91, 'passComplete': true},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.shots, 91);
+    expect(vm.state.isScanPassComplete, isTrue);
+  });
+
+  test('the coverage review reaches the native preview', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+
+    await vm.toggleReviewMode();
+
+    expect(calls, contains('setCaptureReviewMode'));
+    expect(vm.state.isReviewingModel, isTrue);
+
+    await vm.toggleReviewMode();
+
+    expect(vm.state.isReviewingModel, isFalse);
+  });
+
+  test('a failed coverage review falls back to the camera, not an error',
+      () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'getSessionState') {
+        return 'capturing';
+      }
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      if (call.method == 'setCaptureReviewMode') {
+        throw PlatformException(code: 'CAPTURE', details: 1001);
+      }
+      return null;
+    });
+    final testContainer = ProviderContainer(
+      overrides: [
+        scanRepositoryProvider.overrideWithValue(repo),
+        captureViewModelProvider.overrideWith(TestCaptureViewModel.new),
+      ],
+    );
+    addTearDown(testContainer.dispose);
+
+    final vm = testContainer.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await vm.toggleReviewMode();
+
+    // The capture is still perfectly alive, and the only action the error
+    // layer offers is to restart the session — which would throw the scan
+    // away. So a failed review just leaves the user on the camera feed.
+    expect(vm.state.isReviewingModel, isFalse);
+    expect(vm.state.error, isNull);
+  });
+
   test('a failed session names its cause instead of a generic error',
       () async {
     // Native code 1010 = ObjectCaptureSession .failed(trackingFailed):

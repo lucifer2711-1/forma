@@ -12,9 +12,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('FormaApp renders the library and navigates to capture',
-      (tester) async {
-    mockFormaEventChannel();
+      (tester) async {    mockFormaEventChannel();
+    final calls = <String>[];
+    Map<Object?, Object?>? reviewArgs;
     mockFormaMethods((call) async {
+      calls.add(call.method);
+      if (call.method == 'setCaptureReviewMode') {
+        reviewArgs = call.arguments as Map<Object?, Object?>?;
+      }
       switch (call.method) {
         case 'isScanSupported':
           return true;
@@ -22,7 +27,7 @@ void main() {
           return 'scan-test';
         default:
           return null;
-    }
+      }
     });
 
     final repo = MemoryScanRepository();
@@ -114,6 +119,47 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.text(Strings.moveCloser), findsOneWidget);
     expect(find.text(Strings.moveFarther), findsNothing);
+
+    // Coverage progress: the session reports the frames it has kept, which
+    // is the user's proof that walking around is actually building a scan.
+    await tester.runAsync(
+      () => emitFormaEvent({'type': 'feedback', 'value': 'none'}),
+    );
+    await tester.runAsync(
+      () => emitFormaEvent({
+        'type': 'capture_progress',
+        'value': {'shots': 42, 'passComplete': false},
+      }),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(Strings.photosCaptured(42)), findsOneWidget);
+    expect(find.text(Strings.capturingHint), findsOneWidget);
+
+    // Once the session says a full pass is captured, asking for another lap
+    // would waste the user's time — the guidance moves on to the sides a
+    // single circle always misses.
+    await tester.runAsync(
+      () => emitFormaEvent({
+        'type': 'capture_progress',
+        'value': {'shots': 88, 'passComplete': true},
+      }),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(Strings.passCompleteHint), findsOneWidget);
+    expect(find.text(Strings.capturingHint), findsNothing);
+
+    // The coverage check swaps the live feed for the captured point cloud:
+    // holes in the geometry are the sides still missing, so the user stops
+    // re-scanning sides that are already done.
+    await tester.tap(find.text(Strings.checkCoverage));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(Strings.coverageHint), findsOneWidget);
+    expect(find.text(Strings.backToCamera), findsOneWidget);
+    expect(calls, contains('setCaptureReviewMode'));
+    expect(reviewArgs, {'enabled': true});
 
     semantics.dispose();
     clearFormaChannelMocks();

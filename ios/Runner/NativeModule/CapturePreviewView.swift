@@ -12,12 +12,33 @@ import UIKit
 /// owner still holds — `ObjectCaptureView` cannot build a feed for a
 /// released session, and draws Apple's own "Cannot make a view for a
 /// deinitialized ObjectCaptureSession" message instead.
+///
+/// In `showsPointCloud` mode it renders the session's **point cloud**
+/// instead: the geometry captured so far, with the positions of the shots
+/// taken drawn on it. That is the honest answer to "which sides have I
+/// scanned?" — holes in the cloud are the sides still missing — and it is
+/// Apple's own live 3D, not a mock-up of one.
 struct CapturePreviewContent: View {
   let session: ObjectCaptureSession
 
+  /// Whether to show the captured point cloud instead of the camera feed.
+  var showsPointCloud = false
+
   var body: some View {
-    ObjectCaptureView(session: session)
-      .ignoresSafeArea()
+    Group {
+      if showsPointCloud {
+        // `showShotLocations` is iOS 18+; on 17 the plain point cloud
+        // still shows the same coverage, minus the shot markers.
+        if #available(iOS 18.0, *) {
+          ObjectCapturePointCloudView(session: session).showShotLocations()
+        } else {
+          ObjectCapturePointCloudView(session: session)
+        }
+      } else {
+        ObjectCaptureView(session: session)
+      }
+    }
+    .ignoresSafeArea()
   }
 }
 
@@ -29,6 +50,10 @@ protocol CapturePreviewRenderer: AnyObject {
 
   /// Blanks the preview (no active session).
   func unbind()
+
+  /// Switches between the live camera feed ([enabled] false) and the
+  /// captured point cloud (`true`) — the coverage review.
+  func setReviewMode(_ enabled: Bool)
 }
 
 /// The plain `UIView` Flutter embeds. It exists to solve two problems that
@@ -84,6 +109,9 @@ final class CapturePreviewRendererImpl: CapturePreviewRenderer {
   /// (device-test finding 2026-09-18).
   private var boundSession: ObjectCaptureSession?
 
+  /// Whether the hosted content shows the point cloud instead of the feed.
+  private var reviewMode = false
+
   init() {
     host = UIHostingController(rootView: AnyView(Color.black))
     host.view.backgroundColor = .black
@@ -98,11 +126,13 @@ final class CapturePreviewRendererImpl: CapturePreviewRenderer {
   var view: UIView { container }
 
   func bind(session: ObjectCaptureSession) {
+    // A new session starts on the camera feed, never mid-review.
+    reviewMode = false
     guard boundSession !== session else {
       return
     }
     boundSession = session
-    host.rootView = AnyView(CapturePreviewContent(session: session))
+    render()
     CameraDebugLogger.capture.info("preview bound to live capture session")
     kickLifecycle()
   }
@@ -113,7 +143,34 @@ final class CapturePreviewRendererImpl: CapturePreviewRenderer {
     }
     CameraDebugLogger.capture.info("preview unbound (no renderable session)")
     boundSession = nil
+    reviewMode = false
     host.rootView = AnyView(Color.black)
+  }
+
+  func setReviewMode(_ enabled: Bool) {
+    guard reviewMode != enabled else {
+      return
+    }
+    reviewMode = enabled
+    CameraDebugLogger.capture.info(
+      "preview review mode \(enabled ? "on (point cloud)" : "off (camera)", privacy: .public)"
+    )
+    render()
+    kickLifecycle()
+  }
+
+  /// Swaps the hosted SwiftUI content for the current mode.
+  private func render() {
+    guard let session = boundSession else {
+      host.rootView = AnyView(Color.black)
+      return
+    }
+    host.rootView = AnyView(
+      CapturePreviewContent(
+        session: session,
+        showsPointCloud: reviewMode
+      )
+    )
   }
 
   /// SwiftUI never sees the appearance callbacks it needs under a Flutter

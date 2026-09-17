@@ -132,6 +132,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
             else ...[
               const SizedBox(height: AppSpacing.lg),
               _buildStatusText(state),
+              _buildProgressCaption(state),
               // The middle of the screen belongs to Object Capture's own AR
               // guidance: the bounding box, the walk-around arrows and the
               // coverage ring are all drawn there. Our hint used to sit
@@ -263,9 +264,36 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     );
   }
 
+  /// Live frame count while capturing.
+  ///
+  /// Object Capture gives no percentage for "how much of the object is
+  /// done", so nothing here pretends to show one: this is the honest
+  /// number of frames the session has kept, which is enough for the user to
+  /// see that walking around is actually building the scan.
+  Widget _buildProgressCaption(CaptureUiState state) {
+    if (state.phase != CapturePhase.capturing || state.shots == 0) {
+      return const SizedBox.shrink();
+    }
+    final colors = FormaColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      child: Text(
+        Strings.photosCaptured(state.shots),
+        style: AppTypography.caption.copyWith(color: colors.textSecondary),
+      ),
+    );
+  }
+
   Widget _buildBottomControls(CaptureUiState state) {
     if (state.phase == CapturePhase.capturing) {
-      return _buildFinishButton();
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildCoverageButton(state),
+          const SizedBox(height: AppSpacing.md),
+          _buildFinishButton(),
+        ],
+      );
     }
     if (state.isCapturePending) {
       // The tap was accepted but the session has not confirmed the capture
@@ -281,9 +309,6 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         ),
         child: _buildStartButton(),
       );
-    }
-    if (state.phase == CapturePhase.capturing) {
-      return _buildFinishButton();
     }
     return const SizedBox(height: 56);
   }
@@ -302,6 +327,60 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       case CapturePhase.failed:
         return false;
     }
+  }
+
+  /// Toggles the point-cloud coverage review.
+  ///
+  /// The scan is only as good as its weakest side, and there was no way to
+  /// see which sides were still missing — which is what made finished models
+  /// look imprecise (device-test finding 2026-09-18). The point cloud is
+  /// Apple's own live geometry, so it cannot flatter the scan.
+  Widget _buildCoverageButton(CaptureUiState state) {
+    final colors = FormaColors.of(context);
+    final isReviewing = state.isReviewingModel;
+    return Semantics(
+      button: true,
+      child: Material(
+        color: colors.bgElevated.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            AppHaptics.tap();
+            unawaited(
+              ref.read(captureViewModelProvider.notifier).toggleReviewMode(),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xl,
+              vertical: AppSpacing.md,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isReviewing
+                      ? Icons.camera_alt_outlined
+                      : Icons.threed_rotation,
+                  size: 20,
+                  color: colors.textPrimary,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  isReviewing
+                      ? Strings.backToCamera
+                      : Strings.checkCoverage,
+                  style: AppTypography.headline.copyWith(
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildStartButton() => PrimaryButton(
@@ -336,6 +415,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       );
 
   String _hintFor(CaptureUiState state) {
+    // While the point cloud is on screen the camera is not, so live framing
+    // feedback would be guidance about a view the user cannot see.
+    if (state.isReviewingModel) {
+      return Strings.coverageHint;
+    }
     // The feedback names describe where the object is, so the guidance is the
     // opposite direction. These were inverted: `objectTooClose` told the user
     // to move closer and `objectTooFar` to move farther — the app fought the
@@ -360,7 +444,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       case CapturePhase.detecting:
         return Strings.detectingHint;
       case CapturePhase.capturing:
-        return Strings.capturingHint;
+        // Apple's own milestone: the dial is full and every side is covered.
+        // Asking for another lap would waste the user's time and add nothing
+        // — the sides a single circle always misses are the top and the
+        // underside.
+        return state.isScanPassComplete
+            ? Strings.passCompleteHint
+            : Strings.capturingHint;
       case CapturePhase.finishing:
         return Strings.finishingHint;
       case CapturePhase.ready:

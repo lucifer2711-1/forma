@@ -36,6 +36,17 @@ final class ModelViewerHub {
     }
   }
 
+  /// Multiplies every mounted viewer's zoom by [scale] (> 1 zooms in).
+  ///
+  /// Driven by the on-screen +/− controls: a pinch is the natural gesture,
+  /// but the buttons guarantee a way to zoom on any device/OS build.
+  func zoomAll(by scale: Float) {
+    prune()
+    for viewer in viewers.values.compactMap(\.viewer) {
+      viewer.zoom(by: scale)
+    }
+  }
+
   private func prune() {
     viewers = viewers.filter { $0.value.viewer != nil }
   }
@@ -65,7 +76,7 @@ private final class WeakViewer {
 /// lamp that spins with the object would keep the shading frozen and hide
 /// exactly the shape detail the user is turning the model to see.
 @MainActor
-final class ModelPreviewRenderer: NSObject {
+final class ModelPreviewRenderer: NSObject, UIGestureRecognizerDelegate {
   private let arView: ARView
   private let statusLabel: UILabel
 
@@ -84,6 +95,12 @@ final class ModelPreviewRenderer: NSObject {
 
   private static let radiansPerPoint: Float = 0.01
   private static let maxPitch: Float = 1.2
+
+  /// How close the model may come to the camera, and how far it may sit,
+  /// as multiples of its own radius.
+  private static let minDistanceFactor: Float = 1.4
+  private static let maxDistanceFactor: Float = 8
+  private static let framingDistanceFactor: Float = 2.6
 
   init(frame: CGRect) {
     arView = ARView(
@@ -119,12 +136,38 @@ final class ModelPreviewRenderer: NSObject {
     anchor.addChild(rigNode)
     arView.scene.addAnchor(anchor)
 
-    arView.addGestureRecognizer(
-      UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+    // Gesture conflict that made pinch-to-zoom dead on device: with a pan
+    // that accepts any number of touches (the default) and no simultaneous
+    // recognition, the pan claims the two-finger sequence and UIKit refuses
+    // to let the pinch begin — so the model orbited but never zoomed
+    // (device-test finding 2026-09-18).
+    //
+    // Fix is twofold: the pan is limited to exactly one finger (a second
+    // finger makes it fail, handing the sequence to the pinch), and the
+    // delegate below lets the two recognise together, so an orbit can turn
+    // straight into a pinch without lifting a finger.
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+    pan.minimumNumberOfTouches = 1
+    pan.maximumNumberOfTouches = 1
+    pan.delegate = self
+    arView.addGestureRecognizer(pan)
+
+    let pinch = UIPinchGestureRecognizer(
+      target: self,
+      action: #selector(handlePinch)
     )
-    arView.addGestureRecognizer(
-      UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
-    )
+    pinch.delegate = self
+    arView.addGestureRecognizer(pinch)
+  }
+
+  /// Lets the orbit and the zoom run at the same time — without this, the
+  /// first recogniser to begin blocks the other for the whole touch
+  /// sequence.
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    true
   }
 
   /// The UIKit view Flutter embeds.
@@ -159,7 +202,22 @@ final class ModelPreviewRenderer: NSObject {
   func resetView() {
     yaw = 0
     pitch = 0
-    distance = modelRadius * 2.6
+    distance = modelRadius * Self.framingDistanceFactor
+    applyTransform()
+  }
+
+  /// Multiplies the zoom by [scale]: > 1 pulls the model closer, < 1 away.
+  ///
+  /// Clamped to [minDistanceFactor, maxDistanceFactor] × the model's radius
+  /// so the object can neither fill the screen with its interior nor shrink
+  /// to a dot.
+  func zoom(by scale: Float) {
+    guard scale > 0, scale != 1 else {
+      return
+    }
+    let minDistance = modelRadius * Self.minDistanceFactor
+    let maxDistance = modelRadius * Self.maxDistanceFactor
+    distance = min(max(distance / scale, minDistance), maxDistance)
     applyTransform()
   }
 
@@ -178,15 +236,9 @@ final class ModelPreviewRenderer: NSObject {
   /// Pinch moves the model closer to or farther from the fixed camera.
   @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
     let scale = Float(gesture.scale)
+    // Reset every callback: `scale` is cumulative since the gesture began.
     gesture.scale = 1
-    guard scale > 0, scale != 1 else {
-      return
-    }
-    distance = min(
-      max(distance / scale, modelRadius * 1.4),
-      modelRadius * 8
-    )
-    applyTransform()
+    zoom(by: scale)
   }
 
   private func present(_ entity: Entity) {

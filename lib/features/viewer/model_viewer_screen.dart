@@ -14,6 +14,7 @@ import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/features/viewer/widgets/model_preview.dart';
+import 'package:forma/platform/native_bridge/native_bridge.dart';
 
 /// Full-screen 360° viewer for a finished scan's model.
 ///
@@ -56,10 +57,21 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
   bool get _viewerSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-  Future<void> _resetView() async {
+  Future<void> _resetView() => _run((bridge) => bridge.resetModelView());
+
+  /// Zooms via the native viewer.
+  ///
+  /// Pinch is the gesture people reach for, and it does work — but a lost
+  /// gesture must never leave the user unable to zoom at all, so the zoom is
+  /// also a button (device-test finding 2026-09-18: the model could be
+  /// rotated but not zoomed).
+  Future<void> _zoom(double scale) =>
+      _run((bridge) => bridge.zoomModelView(scale));
+
+  Future<void> _run(Future<void> Function(NativeBridge bridge) action) async {
     AppHaptics.tap();
     try {
-      await ref.read(nativeBridgeProvider).resetModelView();
+      await action(ref.read(nativeBridgeProvider));
     } on FormaError catch (e) {
       if (!mounted) {
         return;
@@ -106,6 +118,13 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
                   children: [
                     _buildTopBar(colors),
                     const Spacer(),
+                    // Zoom sits above the hint, on the thumb side of the
+                    // screen, where a right-handed grip reaches it.
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _buildZoomControls(colors),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
                     _buildGestureHint(colors),
                   ],
                 ),
@@ -140,6 +159,23 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
             icon: Icons.threed_rotation,
             semanticLabel: Strings.resetView,
             onPressed: _resetView,
+          ),
+        ],
+      );
+
+  Widget _buildZoomControls(FormaColors colors) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PillIconButton(
+            icon: Icons.add,
+            semanticLabel: Strings.zoomIn,
+            onPressed: () => _zoom(1.25),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          _PillIconButton(
+            icon: Icons.remove,
+            semanticLabel: Strings.zoomOut,
+            onPressed: () => _zoom(0.8),
           ),
         ],
       );

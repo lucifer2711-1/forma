@@ -127,6 +127,21 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
         await self.modelViewerHub.resetViews()
         self.respond(result, nil)
       }
+    case "zoomModelView":
+      Task { [weak self] in
+        guard let self else { return }
+        let scale = (call.arguments as? [String: Any])?["scale"] as? Double
+        await self.modelViewerHub.zoomAll(by: Float(scale ?? 1))
+        self.respond(result, nil)
+      }
+    case "setCaptureReviewMode":
+      Task { [weak self] in
+        guard let self else { return }
+        let enabled =
+          (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+        await self.viewport.setReviewMode(enabled)
+        self.respond(result, nil)
+      }
     case "exportModel":
       exportModel(call, result)
     default:

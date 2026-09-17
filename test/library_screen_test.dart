@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ import 'package:forma/design_system/theme.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
 import 'package:forma/features/library/library_screen.dart';
 
+import 'native_channel_mock.dart';
 import 'scan_repository_memory.dart';
 
 /// Capture VM that never touches platform channels — the navigation test
@@ -129,6 +131,59 @@ void main() {
     // instead of showing the black screen a model test would otherwise
     // report as "the model exists but is not viewable".
     expect(find.text(Strings.modelViewerIosOnly), findsOneWidget);
+  });
+
+  testWidgets('the viewer offers zoom controls that reach the native view',
+      (tester) async {
+    // The viewer's chrome only exists where the native view can, and the
+    // test host is not iOS — so the platform is overridden for this test.
+    // It must be restored inside the test body: the binding asserts that no
+    // foundation debug variable is left changed, and `addTearDown` runs
+    // after that check (gotcha 23).
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+    final zoomScales = <double>[];
+    mockFormaEventChannel();
+    mockFormaMethods((call) async {
+      if (call.method == 'zoomModelView') {
+        final args = call.arguments as Map<Object?, Object?>?;
+        zoomScales.add((args?['scale'] as double?) ?? 0);
+      }
+      return null;
+    });
+    addTearDown(clearFormaChannelMocks);
+
+    final directory = Directory.systemTemp.createTempSync('forma-zoom');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final model = File('${directory.path}/Model.usdz')
+      ..writeAsStringSync('usdz');
+
+    final repo = MemoryScanRepository();
+    await repo.save(
+      Scan(
+        id: 'a',
+        name: 'Mug',
+        createdAt: DateTime(2026, 3, 15),
+        status: ScanStatus.ready,
+        modelPath: model.path,
+      ),
+    );
+    await _pump(tester, repo: repo, supported: true);
+
+    await tester.tap(find.text('Mug'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.remove));
+    await tester.pump();
+
+    // Pinch is the primary gesture, but a zoom that depends entirely on a
+    // platform gesture being delivered left the user unable to zoom at all
+    // (device-test finding 2026-09-18).
+    expect(zoomScales, [1.25, 0.8]);
+
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('a scan with no model does not open a viewer',

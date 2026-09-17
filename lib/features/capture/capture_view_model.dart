@@ -41,6 +41,9 @@ class CaptureUiState {
     this.isSessionStarting = false,
     this.isTrackingInitializing = false,
     this.isCapturePending = false,
+    this.shots = 0,
+    this.isScanPassComplete = false,
+    this.isReviewingModel = false,
     this.completedScan,
     this.error,
   });
@@ -80,6 +83,18 @@ class CaptureUiState {
   /// Keeps a tap visible in the UI while it is being retried.
   final bool isCapturePending;
 
+  /// Frames Object Capture has kept so far in this scan.
+  final int shots;
+
+  /// The session has captured a complete circle around the object — every
+  /// side is covered, so the guidance moves on to the top and the underside
+  /// instead of asking for another lap.
+  final bool isScanPassComplete;
+
+  /// The preview is showing the captured point cloud (the coverage check)
+  /// rather than the camera feed.
+  final bool isReviewingModel;
+
   /// User-facing error message; null when healthy.
   final String? error;
 
@@ -96,6 +111,9 @@ class CaptureUiState {
     bool? isSessionStarting,
     bool? isTrackingInitializing,
     bool? isCapturePending,
+    int? shots,
+    bool? isScanPassComplete,
+    bool? isReviewingModel,
     Scan? completedScan,
     String? error,
     bool clearError = false,
@@ -112,6 +130,9 @@ class CaptureUiState {
       isTrackingInitializing:
           isTrackingInitializing ?? this.isTrackingInitializing,
       isCapturePending: isCapturePending ?? this.isCapturePending,
+      shots: shots ?? this.shots,
+      isScanPassComplete: isScanPassComplete ?? this.isScanPassComplete,
+      isReviewingModel: isReviewingModel ?? this.isReviewingModel,
       completedScan: completedScan ?? this.completedScan,
       error: clearError ? null : (error ?? this.error),
     );
@@ -165,6 +186,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       ..add(_bridge.feedbackUpdates.listen((feedback) {
         state = state.copyWith(feedback: feedback.type);
       }))
+      ..add(_bridge.captureProgressUpdates.listen(_onProgress))
       ..add(_bridge.reconstructionProgressUpdates.listen((value) {
         _resetWatchdog();
         state = state.copyWith(
@@ -184,6 +206,37 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
           error: _messageFor(error.code),
         );
       }));
+  }
+
+  /// Applies the session's coverage progress.
+  ///
+  /// Only the numbers themselves come from the session; whether they count
+  /// as "done" is the session's own judgement (`userCompletedScanPass`),
+  /// so the guidance the user sees is never our invention.
+  void _onProgress(CaptureProgress progress) {
+    state = state.copyWith(
+      shots: progress.shots,
+      isScanPassComplete: progress.passComplete,
+    );
+  }
+
+  /// Opens or closes the point-cloud coverage review.
+  ///
+  /// A failure here is deliberately *not* surfaced as a screen error: the
+  /// capture is still perfectly alive, and the error layer's only action is
+  /// to restart the session — which would throw the scan away. The toggle
+  /// simply falls back to the camera feed.
+  Future<void> toggleReviewMode() async {
+    final next = !state.isReviewingModel;
+    state = state.copyWith(isReviewingModel: next);
+    try {
+      await _bridge.setCaptureReviewMode(enabled: next);
+    } on FormaError catch (e) {
+      debugPrint('[forma] review mode unavailable: ${e.debugMessage}');
+      if (!_disposed) {
+        state = state.copyWith(isReviewingModel: !next);
+      }
+    }
   }
 
   void _onPhase(CapturePhase phase) {
@@ -217,7 +270,12 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     }
     if (phase == CapturePhase.completed) {
       _captureRetry?.cancel();
-      state = state.copyWith(isCapturePending: false);
+      // The feed (and therefore the review) is over; the native preview is
+      // unbound and shows nothing until the next session.
+      state = state.copyWith(
+        isCapturePending: false,
+        isReviewingModel: false,
+      );
       _ensureReconstruction();
       return;
     }

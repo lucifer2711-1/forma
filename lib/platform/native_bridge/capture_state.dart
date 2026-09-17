@@ -60,6 +60,27 @@ class CaptureFeedback {
   final CaptureFeedbackType type;
 }
 
+/// Coverage progress while a capture is running.
+///
+/// [shots] is how many frames Object Capture has kept so far; [passComplete]
+/// flips to true once it has captured enough to fill its dial from a full
+/// circle around the object — the session's own "every side is covered"
+/// milestone. Both drive the capture guidance, so the user is told which
+/// sides still need scanning instead of re-scanning a finished one.
+class CaptureProgress {
+  /// Creates a progress snapshot.
+  const CaptureProgress({required this.shots, required this.passComplete});
+
+  /// No progress reported yet.
+  static const empty = CaptureProgress(shots: 0, passComplete: false);
+
+  /// Frames kept by the session so far.
+  final int shots;
+
+  /// Whether the session has completed a full scan pass.
+  final bool passComplete;
+}
+
 /// A native-side error event.
 class BridgeError {
   /// Creates a bridge error.

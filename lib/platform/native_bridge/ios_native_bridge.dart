@@ -14,7 +14,8 @@ import 'package:forma/platform/native_bridge/native_bridge.dart';
 ///   `{"type": "phase", "value": "capturing"}` etc.
 ///
 /// Event types: `phase` (CapturePhase name), `feedback` (CaptureFeedbackType
-/// name), `reconstruction_progress` (double), `reconstruction_complete`
+/// name), `capture_progress` ({shots, passComplete}),
+/// `reconstruction_progress` (double), `reconstruction_complete`
 /// (model file path), `error` ({code, message}).
 class IosNativeBridge implements NativeBridge {
   IosNativeBridge({MethodChannel? commands, EventChannel? events})
@@ -26,6 +27,8 @@ class IosNativeBridge implements NativeBridge {
 
   final _phaseController = StreamController<CapturePhase>.broadcast();
   final _feedbackController = StreamController<CaptureFeedback>.broadcast();
+  final _captureProgressController =
+      StreamController<CaptureProgress>.broadcast();
   final _progressController = StreamController<double>.broadcast();
   final _completeController = StreamController<String>.broadcast();
   final _errorController = StreamController<BridgeError>.broadcast();
@@ -56,6 +59,16 @@ class IosNativeBridge implements NativeBridge {
       case 'feedback':
         final value = event['value'] as String?;
         _feedbackController.add(CaptureFeedback(_parseFeedback(value)));
+      case 'capture_progress':
+        final payload = event['value'];
+        _captureProgressController.add(
+          CaptureProgress(
+            shots: (payload is Map ? payload['shots'] : null) as int? ?? 0,
+            passComplete:
+                (payload is Map ? payload['passComplete'] : null) as bool? ??
+                    false,
+          ),
+        );
       case 'reconstruction_progress':
         _progressController.add((event['value'] as num?)?.toDouble() ?? 0);
       case 'reconstruction_complete':
@@ -174,6 +187,12 @@ class IosNativeBridge implements NativeBridge {
   }
 
   @override
+  Stream<CaptureProgress> get captureProgressUpdates {
+    _ensureSubscribed();
+    return _captureProgressController.stream;
+  }
+
+  @override
   Stream<double> get reconstructionProgressUpdates {
     _ensureSubscribed();
     return _progressController.stream;
@@ -199,6 +218,14 @@ class IosNativeBridge implements NativeBridge {
   Future<void> resetModelView() => _invoke<void>('resetModelView');
 
   @override
+  Future<void> zoomModelView(double scale) =>
+      _invoke<void>('zoomModelView', {'scale': scale});
+
+  @override
+  Future<void> setCaptureReviewMode({required bool enabled}) =>
+      _invoke<void>('setCaptureReviewMode', {'enabled': enabled});
+
+  @override
   Future<bool> hasActiveCaptureSession() async {
     try {
       return await _commands.invokeMethod<bool>('hasActiveCaptureSession') ??
@@ -216,6 +243,7 @@ class IosNativeBridge implements NativeBridge {
     unawaited(_eventSub?.cancel());
     unawaited(_phaseController.close());
     unawaited(_feedbackController.close());
+    unawaited(_captureProgressController.close());
     unawaited(_progressController.close());
     unawaited(_completeController.close());
     unawaited(_errorController.close());

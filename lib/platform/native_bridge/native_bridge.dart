@@ -44,11 +44,28 @@ abstract interface class NativeBridge {
   /// viewer's "reset view" affordance).
   Future<void> resetModelView();
 
+  /// Multiplies the 360° viewer's zoom by [scale] (> 1 zooms in).
+  ///
+  /// Pinch is the primary gesture; this backs the on-screen zoom controls,
+  /// which work even where a native gesture cannot be delivered.
+  Future<void> zoomModelView(double scale);
+
+  /// Switches the capture preview between the live camera feed ([enabled]
+  /// false) and the captured point cloud (`true`).
+  ///
+  /// The point cloud is the coverage check: geometry the session has
+  /// captured, with the shots taken marked on it — holes are the sides
+  /// still to scan.
+  Future<void> setCaptureReviewMode({required bool enabled});
+
   /// Continuous capture phase updates.
   Stream<CapturePhase> get phaseUpdates;
 
   /// Continuous guidance feedback updates.
   Stream<CaptureFeedback> get feedbackUpdates;
+
+  /// Coverage progress while capturing (shots kept, pass completed).
+  Stream<CaptureProgress> get captureProgressUpdates;
 
   /// Reconstruction progress from 0.0 to 1.0.
   Stream<double> get reconstructionProgressUpdates;

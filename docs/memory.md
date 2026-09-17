@@ -131,15 +131,39 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
     wire code and its own user-facing message — collapsing them into one
     "Something went wrong" hides the cause from the user and from anyone
     reading a screenshot.
+24. **Two UIKit gesture recognizers on the same view cannot both recognise**
+    unless a delegate allows it. A one-finger pan (default
+    `maximumNumberOfTouches` = unlimited) and a two-finger pinch on the same
+    view means the pan claims the sequence and UIKit refuses to let the
+    pinch begin — the model orbits but never zooms, with no error anywhere.
+    Fix: `pan.maximumNumberOfTouches = 1` so a second finger makes the pan
+    fail, plus `UIGestureRecognizerDelegate`
+    `shouldRecognizeSimultaneouslyWith → true` so an orbit can turn into a
+    pinch without lifting a finger.
+25. **`debugDefaultTargetPlatformOverride` must be reset inside the test
+    body.** The binding asserts that no foundation debug variable was left
+    changed *before* `addTearDown` callbacks run, so resetting it in a
+    teardown fails the test with "The value of a foundation debug variable
+    was changed by the test".
+26. **Object Capture exposes coverage, and we should use it.**
+    `session.userCompletedScanPass` flips true when a full circle has been
+    captured (Apple's own "every side is covered" milestone);
+    `numberOfShotsTaken` is the frames kept; `ObjectCapturePointCloudView`
+    renders the live captured geometry (with `showShotLocations()` — iOS 18+
+    — marking where shots were taken); `isAutoCaptureEnabled` and
+    `shouldPlayHaptics` are settable on iOS 18+. Deployment target is 17.0,
+    so every iOS 18 API needs an `if #available` guard. There is **no**
+    numeric coverage percentage — never invent one.
 
 ## Platform Bridge Contract (architecture.md §3)
 - MethodChannel `com.forma.app/native`: isScanSupported, hasLiDAR,
   startCapture→scanId, beginCapturing, finishCapture, cancelCapture,
   startReconstruction, exportModel{scanId,format},
-  hasActiveCaptureSession→bool.
+  hasActiveCaptureSession→bool, getSessionState→phase name,
+  resetModelView, zoomModelView{scale}, setCaptureReviewMode{enabled}.
 - EventChannel `com.forma.app/capture_events`: payloads `{"type": …,
-  "value": …}` — phase / feedback / reconstruction_progress /
-  reconstruction_complete / error{code,message}.
+  "value": …}` — phase / feedback / capture_progress{shots,passComplete} /
+  reconstruction_progress / reconstruction_complete / error{code,message}.
 - Swift errors → FlutterError(code:) UNSUPPORTED/CAPTURE/RECONSTRUCT/
   EXPORT/STORE → Dart FormaError subclasses in `_mapError`.
 - `MissingPluginException` → `UnsupportedDeviceError` (honest non-iOS path).
@@ -188,4 +212,5 @@ Then Phase 2: capture screen with ObjectCaptureView platform view.
 | 10 | 2026-09-17 | Retest on +3 with 10 GB free: still "Starting camera…", NO crashes. Live log (11 s window before iOS 27-beta syslog stream died): CoreOC frames flowing at ~30 Hz (processVideoData 0.14 ms) but "Camera tracking is not normal!" forever → session parked in .initializing, no .ready phase. Fixes: getSessionState() contract + Swift handler; watchdog distinguishes initializing (→ tracking-guidance overlay "well-lit textured surface", NOT an error — old probe falsely blamed permission) from none/failed (→ camera-dead); per-transition os_log; phaseName internal; 34 tests green; build +4 | Reinstall +4 → retest in GOOD LIGHT, textured surface. If still initializing: likely iOS 27 beta ARKit issue → retest on iOS 26.x |
 | 17 | 2026-09-18 | Retest: **capture and reconstruction now both work** — "model is created in the app". Two gaps remained, both real: (a) **there was no model viewer at all** (the library tiles had no `onTap`, and no viewer screen existed), so the finished model was unviewable; (b) capture guidance was thin and the app's hint pill sat *centred on top of Object Capture's own AR guidance* (bounding box, walk-around arrows, coverage ring), hiding exactly what a full-coverage scan needs, while the `environmentLowLight` feedback the session sends was dropped entirely. Added a native 360° viewer (`ModelPreviewView.swift`: RealityKit `ARView` in `.nonAR` with `enableCameraControls` for orbit/zoom, three directional lights, model centred and framed from its own bounds, honest on-screen failure text) + `resetModelView` channel + hub, registered in `pbxproj`; a Dart viewer screen that checks the file first and says so when it is missing, reached from the library grid **and automatically right after a scan finishes**; capture guidance moved under the top bar so the centre stays Apple's, a 3-step indicator (aim → walk → build), and the full feedback set mapped (low light, object-not-detected) with unmapped feedback now logged instead of swallowed. 46 tests green; build +12 | Install +12 → confirm `v1.0.0+12`, scan in good light walking a full circle, then inspect the model from every side in the viewer |
 | 16 | 2026-09-18 | Next retest showed our error layer with the generic "Something went wrong. Please try again." — the real reason was being flattened on both paths (`_messageFor` mapped only 1005/1007; a `.failed` phase with no prior error also fell back to it). Native now maps each `ObjectCaptureSession.Error` to its own code (1007 storage, 1008 image limit, 1009 sensor, 1010 tracking, else 1001) by matching the description, Dart gives every code its own honest message, and a request against a dead session (1002/1004) surfaces `ScanSessionEndedError` instead of the bare "Capture failed." A failing scan now names its cause on screen, so no USB cable is needed to diagnose it (gotcha 22). 43 tests green; build +11 | Install +11, confirm `v1.0.0+11`, retry a scan — the error text now names the cause (tracking lost / camera sensor / storage / model build). Report that text, or plug the phone in for the full device log |
+| 18 | 2026-09-18 | Retest: viewer orbits but **pinch-to-zoom did nothing** (gotcha 24: pan + pinch on one view cannot both recognise, so the pan claimed every two-finger sequence), and a scan still looked imprecise because nothing told the user which sides were captured. Fixes: pan limited to one finger + simultaneous-recognition delegate, plus on-screen +/− zoom that does not depend on a gesture being delivered; the capture screen now polls `userCompletedScanPass` + `numberOfShotsTaken` and shows a live photo count, switches the guidance from "walk a full circle" to "now capture the top" once Apple reports the pass complete, and offers a **Check coverage** button that swaps the preview for Apple's live `ObjectCapturePointCloudView` (shot locations on iOS 18+) so holes in the geometry show exactly which sides are missing; auto-capture + session haptics enabled on iOS 18. 50 tests green; build +13 | Install +13 → confirm `v1.0.0+13`; in a scan tap Check coverage mid-walk to see unscanned sides, then retest pinch **and** the +/− zoom in the viewer |
 | 15 | 2026-09-18 | Device screenshot showed Apple's own "Cannot make a view for a deinitialized ObjectCaptureSession" drawn over an all-black feed, with no CTA and a stale feedback hint — a preview bound to a session that was already gone. Six defects fixed from that evidence: (a) the `ObjectCaptureView` platform view was bound *after* `session.start(…)`; Apple's own sample installs the view first, so the view never attached to the live feed → bind before start; (b) `ScanViewportController` tracked only the newest preview, so a session swap left older mounted previews rendering a released session → registry of live previews, all bound/unbound together, registry pruned on platform-view dispose, and the renderer holds its bound session strongly; (c) the preview was never unbound at `.completed`/`.failed` → terminal phases blank it; (d) guidance was INVERTED — `objectTooClose` told the user to move closer and `objectTooFar` to move farther, so the app fought the session's own guidance (gotcha 21); (e) a `.completed` session the app had not driven dead-ended with no CTA and no reconstruction → completion now hands the scan to reconstruction exactly once, including when only the watchdog probe sees it; (f) the camera-dead probe overwrote a specific reason (storage/permission) with the generic camera error. 41 tests green; build +10 | Install +10, confirm `v1.0.0+10`, scan in good light. If the feed is still black, pull the device log — transitions, preview binds and unbinds are all logged |

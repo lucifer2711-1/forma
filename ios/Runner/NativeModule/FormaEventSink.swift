@@ -35,6 +35,15 @@ final class FormaEventSink: NSObject, FlutterStreamHandler {
     emit(["type": "feedback", "value": name])
   }
 
+  /// Coverage progress while capturing: how many frames the session has
+  /// kept, and whether the user has completed a full scan pass.
+  func emitCaptureProgress(shots: Int, passComplete: Bool) {
+    emit([
+      "type": "capture_progress",
+      "value": ["shots": shots, "passComplete": passComplete],
+    ])
+  }
+
   func emitProgress(_ value: Double) {
     emit(["type": "reconstruction_progress", "value": value])
   }

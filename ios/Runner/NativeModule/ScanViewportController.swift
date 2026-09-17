@@ -36,6 +36,13 @@ final class ScanViewportController: NSObject {
   /// be kept alive by this registry.
   private var previews: [ObjectIdentifier: WeakPreview] = [:]
 
+  /// Whether previews show the captured point cloud instead of the feed.
+  ///
+  /// Held here (not per preview) so a preview mounted *after* the user
+  /// asked for the coverage review comes up in the same mode instead of
+  /// silently reverting to the camera.
+  private var reviewMode = false
+
   nonisolated init(events: FormaEventSink) {
     self.events = events
     super.init()
@@ -44,6 +51,8 @@ final class ScanViewportController: NSObject {
   /// Adopts a newly created session and shows it in every live preview.
   func attach(session: ObjectCaptureSession) {
     self.session = session
+    // A fresh session always starts on the camera feed.
+    reviewMode = false
     for preview in livePreviews() {
       preview.bind(session: session)
     }
@@ -52,7 +61,18 @@ final class ScanViewportController: NSObject {
   /// Drops the session reference (cancel/cleanup); every preview goes dark.
   func clearSession() {
     session = nil
+    reviewMode = false
     unbindPreviews()
+  }
+
+  /// Switches every live preview between the camera feed and the captured
+  /// point cloud — the coverage review the user opens to see which sides
+  /// are already captured.
+  func setReviewMode(_ enabled: Bool) {
+    reviewMode = enabled
+    for preview in livePreviews() {
+      preview.setReviewMode(enabled)
+    }
   }
 
   /// Blanks every live preview while keeping the session reference.
@@ -61,6 +81,9 @@ final class ScanViewportController: NSObject {
   /// `.failed`): the live feed is over, and a view built for a finished
   /// session is what RealityKit reports as a deinitialized session.
   func unbindPreviews() {
+    // Nothing is renderable any more, so the review is over too — a new
+    // session must not inherit it.
+    reviewMode = false
     for preview in livePreviews() {
       preview.unbind()
     }
@@ -98,6 +121,7 @@ final class ScanViewportController: NSObject {
     pruneDeadPreviews()
     if let session {
       preview.bind(session: session)
+      preview.setReviewMode(reviewMode)
     }
   }
 

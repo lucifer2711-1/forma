@@ -29,6 +29,11 @@ final class CaptureService {
   /// feed `handle(_:)` without double-driving the state machine.
   private var lastHandledPhase: String?
 
+  /// Last coverage progress already sent to Dart, so the poll only emits on
+  /// a real change. -1 means "nothing reported for this session yet".
+  private var lastShotsTaken = -1
+  private var lastPassComplete = false
+
   /// How often the session's `state` property is polled. It is a cheap
   /// property read on the main actor.
   private static let statePollNanoseconds: UInt64 = 200_000_000
@@ -115,6 +120,17 @@ final class CaptureService {
     self.session = session
     recordScan(scanId, imagesDirectory: imagesDirectory)
     lastHandledPhase = nil
+    lastShotsTaken = -1
+    lastPassComplete = false
+
+    // Make the capture itself as effortless as the OS allows: automatic
+    // capture (no per-frame tapping) plus the session's own haptics so the
+    // user feels each frame land instead of wondering whether it is
+    // working. Both are iOS 18+.
+    if #available(iOS 18.0, *) {
+      session.isAutoCaptureEnabled = true
+      session.shouldPlayHaptics = true
+    }
 
     // Task created here inherits the main actor. Subscribed BEFORE start():
     // an update sequence only yields transitions observed after it is
@@ -219,6 +235,8 @@ final class CaptureService {
       self.scanId = nil
       self.session = nil
       lastHandledPhase = nil
+      lastShotsTaken = -1
+      lastPassComplete = false
       stateTask?.cancel()
       feedbackTask?.cancel()
       statePollTask?.cancel()
@@ -271,6 +289,7 @@ final class CaptureService {
         guard let self, let session = self.session else { return }
         let state = session.state
         self.handle(state)
+        self.publishProgress(from: session)
         if Self.phaseName(state) == "ready" {
           readyObservations += 1
           // Detection occasionally doesn't take on first ask; nudge again
@@ -291,6 +310,26 @@ final class CaptureService {
         }
       }
     }
+  }
+
+  /// Reports the session's coverage progress to Dart.
+  ///
+  /// `numberOfShotsTaken` is how many frames Object Capture has kept, and
+  /// `userCompletedScanPass` flips to true once it has captured enough data
+  /// to fill the capture dial from a full circle around the object —
+  /// Apple's own "every side is covered" milestone, which is exactly the
+  /// signal the UI needs to stop the user re-scanning a finished side.
+  /// Polled rather than streamed for the same reason the phase is: the
+  /// `*Updates` sequences proved unreliable on device.
+  private func publishProgress(from session: ObjectCaptureSession) {
+    let shots = session.numberOfShotsTaken
+    let passComplete = session.userCompletedScanPass
+    guard shots != lastShotsTaken || passComplete != lastPassComplete else {
+      return
+    }
+    lastShotsTaken = shots
+    lastPassComplete = passComplete
+    events.emitCaptureProgress(shots: shots, passComplete: passComplete)
   }
 
   /// Asks the session to begin detecting, only while it is actually ready.
