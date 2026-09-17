@@ -2,6 +2,7 @@ import Flutter
 import Foundation
 import RealityKit
 import UIKit
+import simd
 
 /// Keeps the mounted model viewers addressable so the Dart chrome can drive
 /// them (the "reset view" affordance) without knowing about platform views.
@@ -23,7 +24,7 @@ final class ModelViewerHub {
     viewers.removeValue(forKey: ObjectIdentifier(viewer))
   }
 
-  /// Returns every mounted viewer to its framing position.
+  /// Returns every mounted viewer to its framing position and angle.
   func resetViews() {
     prune()
     for viewer in viewers.values.compactMap(\.viewer) {
@@ -48,20 +49,37 @@ private final class WeakViewer {
 /// Shows a finished scan's USDZ in a RealityKit view the user can inspect
 /// from any side.
 ///
-/// `ARView` in `.nonAR` camera mode with `enableCameraControls` provides the
-/// orbit/pinch/pan gestures, so 360° inspection needs no hand-rolled gesture
-/// math. Lighting is three directional lights on purpose: an image-based
-/// lighting environment requires a bundled HDR asset, and a PBR model with no
-/// light renders as a black silhouette — which is exactly what a viewer must
-/// never look like.
+/// The camera stays fixed and the *model* moves: iOS `ARView` exposes neither
+/// camera controls (`enableCameraControls` is macOS-only) nor a settable
+/// `cameraTransform` (get-only on iOS), so the 360° interaction is a pan
+/// gesture that spins the model and a pinch that changes how far away it sits
+/// in front of the camera — the same turntable behaviour, with no reliance on
+/// platform-gated API.
+///
+/// Lighting is three directional lights in a rig that does NOT rotate with
+/// the model: an image-based environment needs a bundled HDR asset, and a
+/// lamp that spins with the object would keep the shading frozen and hide
+/// exactly the shape detail the user is turning the model to see.
 @MainActor
-final class ModelPreviewRenderer {
+final class ModelPreviewRenderer: NSObject {
   private let arView: ARView
   private let statusLabel: UILabel
 
-  /// Half-extent used to place the camera; set from the loaded model so an
-  /// object scanned at any scale fills the screen.
+  /// Rotating node holding the model, centred on its own origin.
+  private let modelNode = Entity()
+
+  /// Non-rotating node holding the lights, kept at the model's depth.
+  private let rigNode = Entity()
+
+  /// Half-extent of the loaded model; drives framing and zoom limits.
   private var modelRadius: Float = 0.5
+
+  private var distance: Float = 1.5
+  private var yaw: Float = 0
+  private var pitch: Float = 0
+
+  private static let radiansPerPoint: Float = 0.01
+  private static let maxPitch: Float = 1.2
 
   init(frame: CGRect) {
     arView = ARView(
@@ -71,7 +89,6 @@ final class ModelPreviewRenderer {
     )
     arView.backgroundColor = .black
     arView.environment.background = .color(.black)
-    arView.enableCameraControls = true
     arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
     statusLabel = UILabel(frame: .zero)
@@ -80,7 +97,9 @@ final class ModelPreviewRenderer {
     statusLabel.textAlignment = .center
     statusLabel.numberOfLines = 0
     statusLabel.translatesAutoresizingMaskIntoConstraints = false
-    statusLabel.isHidden = true
+
+    super.init()
+
     arView.addSubview(statusLabel)
     NSLayoutConstraint.activate([
       statusLabel.centerXAnchor.constraint(equalTo: arView.centerXAnchor),
@@ -90,6 +109,18 @@ final class ModelPreviewRenderer {
         constant: 32
       ),
     ])
+
+    let anchor = AnchorEntity(world: .zero)
+    anchor.addChild(modelNode)
+    anchor.addChild(rigNode)
+    arView.scene.addAnchor(anchor)
+
+    arView.addGestureRecognizer(
+      UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+    )
+    arView.addGestureRecognizer(
+      UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+    )
   }
 
   /// The UIKit view Flutter embeds.
@@ -120,34 +151,66 @@ final class ModelPreviewRenderer {
     }
   }
 
-  /// Returns the camera to a framing position showing the whole model.
+  /// Returns the model to a framing distance and a straight-on angle.
   func resetView() {
-    let radius = modelRadius
-    var transform = Transform(pitch: -0.12, yaw: 0, roll: 0)
-    transform.translation = SIMD3<Float>(0, radius * 0.35, radius * 2.6)
-    arView.cameraTransform = transform
+    yaw = 0
+    pitch = 0
+    distance = modelRadius * 2.6
+    applyTransform()
+  }
+
+  // MARK: Gestures
+
+  /// Turntable orbit: horizontal drag spins the model, vertical drag tilts it.
+  @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+    let translation = gesture.translation(in: arView)
+    gesture.setTranslation(.zero, in: arView)
+    yaw -= Float(translation.x) * Self.radiansPerPoint
+    pitch -= Float(translation.y) * Self.radiansPerPoint
+    pitch = min(max(pitch, -Self.maxPitch), Self.maxPitch)
+    applyTransform()
+  }
+
+  /// Pinch moves the model closer to or farther from the fixed camera.
+  @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+    let scale = Float(gesture.scale)
+    gesture.scale = 1
+    guard scale > 0, scale != 1 else {
+      return
+    }
+    distance = min(
+      max(distance / scale, modelRadius * 1.4),
+      modelRadius * 8
+    )
+    applyTransform()
   }
 
   private func present(_ entity: Entity) {
-    arView.scene.anchors.removeAll()
-
-    // Centre the model on the origin: the built-in camera controls orbit the
-    // scene origin, so an off-centre model would swing out of frame.
+    // Centre the model on its own origin so the orbit pivots around the
+    // object instead of around a corner of its bounding box.
     let bounds = entity.visualBounds(relativeTo: nil)
     modelRadius = max(bounds.boundingRadius, 0.01)
     entity.position -= bounds.center
 
-    let holder = Entity()
-    holder.addChild(entity)
-    holder.addChild(makeLightRig(radius: modelRadius))
+    modelNode.children.removeAll()
+    modelNode.addChild(entity)
 
-    let anchor = AnchorEntity(world: .zero)
-    anchor.addChild(holder)
-    arView.scene.addAnchor(anchor)
+    rigNode.children.removeAll()
+    rigNode.addChild(makeLightRig(radius: modelRadius))
 
     resetView()
     statusLabel.isHidden = true
     CameraDebugLogger.capture.info("model viewer ready")
+  }
+
+  private func applyTransform() {
+    let offset = SIMD3<Float>(0, 0, -distance)
+    modelNode.transform.translation = offset
+    modelNode.transform.rotation =
+      simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+      * simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
+    // Lights travel with the model's depth but never spin with it.
+    rigNode.transform.translation = offset
   }
 
   /// Key, fill and rim lights so every side of a rotating model stays legible.
