@@ -1,6 +1,5 @@
 import CoreMotion
 import Foundation
-import simd
 
 /// Tracks which way the phone is aimed at the object while scanning.
 ///
@@ -74,17 +73,35 @@ final class ScanDirectionRecorder {
       return nil
     }
     let rotation = attitude.rotationMatrix
-    let world = SIMD3<Double>(
-      rotation.m13,
-      rotation.m23,
-      rotation.m33
-    )
-    let length = simd_length(world)
+    // Column 3 of the rotation matrix is the device's +z axis expressed in
+    // the reference frame — the direction the object faces the phone from.
+    let x = rotation.m13
+    let y = rotation.m23
+    let z = rotation.m33
+    let length = (x * x + y * y + z * z).squareRoot()
     guard length > 0.0001 else {
       return nil
     }
-    let unit = world / length
-    return SIMD3<Float>(Float(unit.x), Float(unit.y), Float(unit.z))
+    return SIMD3<Float>(
+      Float(x / length),
+      Float(y / length),
+      Float(z / length)
+    )
+  }
+
+  /// Angle between two directions, in radians.
+  ///
+  /// Written out rather than using the `simd` helpers: `simd_angle_between`
+  /// is not in scope for `SIMD3<Float>` on this SDK (build failure, 2026-09-18),
+  /// and the arithmetic is three multiplications.
+  private static func angle(
+    between lhs: SIMD3<Float>,
+    and rhs: SIMD3<Float>
+  ) -> Float {
+    let dot = lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z
+    // Both sides are unit vectors, so the dot is the cosine — clamped, or a
+    // rounding error past 1 would make acos return NaN.
+    return acos(min(max(dot, -1), 1))
   }
 
   /// The current direction, but only when it is far enough from the last one
@@ -94,7 +111,7 @@ final class ScanDirectionRecorder {
       return nil
     }
     if let last = lastKeptDirection,
-       simd_angle_between(last, direction) <
+       Self.angle(between: last, and: direction) <
        Self.minSeparationDegrees * .pi / 180 {
       return nil
     }
