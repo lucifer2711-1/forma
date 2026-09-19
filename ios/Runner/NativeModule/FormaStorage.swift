@@ -30,6 +30,18 @@ enum FormaStorage {
       .appendingPathComponent("Model.usdz")
   }
 
+  /// Working directory for the downsampled frames handed to reconstruction.
+  ///
+  /// Deliberately a sibling of `Images/` rather than a child: the capture's
+  /// originals must never be read back as input, and the prepared set is
+  /// deleted as soon as the build ends. It lives under the scan's own
+  /// directory so `deleteScanFiles` reclaims it with everything else.
+  static func preparedImagesDirectory(scanId: String) -> URL {
+    scansRoot
+      .appendingPathComponent(scanId, isDirectory: true)
+      .appendingPathComponent("Prepared", isDirectory: true)
+  }
+
   /// Export destination for [scanId] and [pathExtension].
   static func exportURL(scanId: String, pathExtension: String) -> URL {
     exportsRoot
@@ -37,8 +49,8 @@ enum FormaStorage {
       .appendingPathComponent("model.\(pathExtension)")
   }
 
-  /// Deletes everything Forma wrote for [scanId]: its source images, the
-  /// reconstructed model, and any exports.
+  /// Deletes everything Forma wrote for [scanId]: its source images, its
+  /// prepared working copy, the reconstructed model, and any exports.
   ///
   /// Deleting the library row alone left the model on disk forever — a scan
   /// is hundreds of megabytes, so "delete" has to actually reclaim the space

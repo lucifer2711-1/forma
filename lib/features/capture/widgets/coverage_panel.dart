@@ -217,11 +217,13 @@ class CoveragePanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            map.missingBands.isEmpty
+            map.missingReachableBands.isEmpty
                 ? Icons.check_circle_outline
                 : Icons.info_outline,
             size: 20,
-            color: map.missingBands.isEmpty ? colors.success : colors.accent,
+            color: map.missingReachableBands.isEmpty
+                ? colors.success
+                : colors.accent,
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
@@ -250,7 +252,19 @@ class CoveragePanel extends StatelessWidget {
           ? Strings.coverageCompleteHint
           : Strings.coverageAlmostHint;
     }
-    return Strings.coverageStillToScan(joinCoverageBandNames(missing));
+    if (map.missingReachableBands.isEmpty) {
+      // Only the underside is left — the one band an object resting on a
+      // surface does not have. The globe keeps showing it honestly; the
+      // advice just cannot ask for something the user cannot walk to. Asking
+      // anyway is what kept users circling a finished scan (user request
+      // 2026-09-20).
+      return Strings.coverageUndersideOptional;
+    }
+    // Only the bands the user can actually reach are ever named, so the
+    // checklist and the live hint can never disagree about what is left.
+    return Strings.coverageStillToScan(
+      joinCoverageBandNames(map.missingReachableBands),
+    );
   }
 
   String _semanticsSummary(int percent) =>

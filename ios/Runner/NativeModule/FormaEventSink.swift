@@ -36,11 +36,28 @@ final class FormaEventSink: NSObject, FlutterStreamHandler {
   }
 
   /// Coverage progress while capturing: how many frames the session has
-  /// kept, and whether the user has completed a full scan pass.
-  func emitCaptureProgress(shots: Int, passComplete: Bool) {
+  /// kept, whether the user has completed a full scan pass, and the frame
+  /// budget the scan is being held to.
+  ///
+  /// The budget is part of this event rather than a separate one because the
+  /// three numbers answer one question — "how much longer?" — and splitting
+  /// them would let the UI show a target it had stopped matching.
+  func emitCaptureProgress(
+    shots: Int,
+    passComplete: Bool,
+    targetShots: Int,
+    maxShots: Int,
+    budgetReached: Bool
+  ) {
     emit([
       "type": "capture_progress",
-      "value": ["shots": shots, "passComplete": passComplete],
+      "value": [
+        "shots": shots,
+        "passComplete": passComplete,
+        "targetShots": targetShots,
+        "maxShots": maxShots,
+        "budgetReached": budgetReached,
+      ],
     ])
   }
 

@@ -36,6 +36,9 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
 | 2026-09-14 | vphone-cli REJECTED as emulator | Needs Apple Silicon macOS 15+ host + SIP/AMFI relaxation; GH runners nested; no LiDAR/camera in guest |
 | 2026-09-14 | windows/ platform folder added | Local dev/hot-reload on the Windows workstation (VS Build Tools present) |
 | 2026-09-14 | Native module = classic FlutterPlugin via `registrar(forPlugin:)` | Stable API across Flutter 3.x incl. implicit-engine AppDelegate |
+| 2026-09-20 | **`ScanProfile` presets instead of a fixed capture** | iOS gives no geometry tier to trade against (gotcha 33), so the only honest speed levers are how many frames are shot and how large the images handed to reconstruction are. A profile makes that one deliberate choice with a stated cost (`~2/5/10 min`) instead of an invisible one |
+| 2026-09-20 | **The capture session is bounded and may end itself** | Object Capture shoots until the user stops walking, so capture time was a function of patience. Ending at the profile's frame cap is what makes a scan's length predictable; the cap sits far above the target so it can only ever truncate over-scanning |
+| 2026-09-20 | **The underside does not gate completion** | An object on a table has no underside to walk to; requiring it made the checklist unsatisfiable (gotcha 35) |
 
 ## Environment Gotchas (discovered — do not re-learn these)
 0. **`ObjectCaptureSession.stateUpdates` / `feedbackUpdates` can deliver
@@ -222,6 +225,34 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
     pressure shrank the input images) and `.stitchingIncomplete` (coverage was
     missing). Keep stage names as tokens in Swift and the wording in
     `Strings` — no user-facing English in the native module.
+35. **A completion checklist that requires an unreachable item is worse than
+    no checklist.** The coverage verdict gated "you are done" on the **bottom**
+    band, but the bottom band (`z < -0.5`, i.e. aimed *up* from under the
+    object) does not exist for anything resting on a table. `userCompletedScanPass`
+    could be true, every reachable side full, and the app still said "still to
+    scan: the underside" — so the user kept circling a finished scan for as
+    long as they had patience. That is most of what made a small object take
+    20-25 minutes, and none of it was the session being slow. **Fix:
+    `CoverageMap.missingReachableBands`** excludes the underside from the
+    verdict while the globe keeps *showing* it. Rule: when a checklist decides
+    when to stop, every item on it must be reachable by the user.
+36. **Reconstruction cost is a pixel count, and `PhotogrammetrySession` will
+    not tell you that.** Object Capture writes full-sensor frames (4032×3024 on
+    a 12 MP iPhone) and a walk-around keeps 100-200 of them, so the session was
+    asked to decode, ML-mask, match and texture-map ~2 gigapixels for a
+    coffee-cup object. Nothing in Apple's API bounds that, so we do:
+    `ImagePreprocessor` rewrites the frames at the profile's longest edge
+    (1536/2048/3072) before the session ever opens them. ImageIO details that
+    matter: use `kCGImageSourceCreateThumbnailFromImageAlways` (the HEICs carry
+    embedded thumbnails and `IfAbsent` would silently reconstruct from a
+    postage stamp) and `kCGImageSourceCreateThumbnailWithTransform` (Object
+    Capture writes some frames as landscape pixels plus a rotation flag, and
+    reconstruction reads raw pixels — an unrotated frame will not align).
+    Keep the written filenames in capture order or `sampleOrdering:
+    .sequential` becomes a wrong assumption instead of an optimisation. And
+    never let a quality filter drop so many frames that coverage is lost —
+    `minimumKept` (24) is the floor, because a re-scan is slower than a soft
+    model.
 
 ## Platform Bridge Contract (architecture.md §3)
 - MethodChannel `com.forma.app/native`: isScanSupported, hasLiDAR,
@@ -229,11 +260,20 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
   startReconstruction, exportModel{scanId,format},
   hasActiveCaptureSession→bool, getSessionState→phase name,
   resetModelView, zoomModelView{scale}, setCaptureReviewMode{enabled},
-  setTorch{enabled}, deleteScan{scanId}.
+  setTorch{enabled}, setScanProfile{profile}, deleteScan{scanId}.
 - EventChannel `com.forma.app/capture_events`: payloads `{"type": …,
-  "value": …}` — phase / feedback / capture_progress{shots,passComplete} /
+  "value": …}` — phase / feedback /
+  capture_progress{shots,passComplete,targetShots,maxShots,budgetReached} /
   scan_direction{x,y,z,kept} / model_zoom (double) /
   reconstruction_progress / reconstruction_complete / error{code,message}.
+- `setScanProfile` (quick/balanced/detail) is safe before a session exists —
+  native keeps it as `pendingProfile` for the next scan, which is how the
+  capture screen's speed picker is applied without a second round trip in
+  front of `startCapture`.
+- `capture_progress` carries the frame budget with the counts because the
+  three numbers answer one question ("how much longer?"); splitting them into
+  a second event would let the UI show a target it had stopped matching.
+  `budgetReached` means the session ended the capture itself at the cap.
 - `scan_direction` carries two signals: `kept: true` is a frame the session
   stored (a finished side of the coverage globe), `kept: false` is where the
   phone is pointed right now (the globe's "you are here", throttled to 0.4 s).
@@ -292,3 +332,4 @@ Then Phase 2: capture screen with ObjectCaptureView platform view.
 | 21 | 2026-09-18 | User request: "scanning takes too much time, make it fast, add an AI touch". Checked Apple's docs instead of guessing, which changed the plan twice: **iOS supports only `.reduced` detail**, so the macOS "fast preview, then full quality" pattern is impossible on iPhone, and `useTrainedModels` does not exist — no API to invent. What shipped: (a) `sampleOrdering = .sequential` — the one real geometry-stage lever, since Object Capture's frames are written in walking order and declaring that skips exhaustive unordered matching; (b) RealityKit's own **stage + remaining-time estimate** (`requestProgressInfo` → `Output.ProgressInfo.estimatedRemainingTime` / `processingStage`) is now streamed, so the panel reads "Aligning the photos — about 2 minutes left" instead of a bare percentage (nil is cleared, never faked); (c) `.automaticDownsampling` and `.stitchingIncomplete` are logged — they explain a coarse model rather than a failure; (d) the capture guidance now narrows instead of repeating — keep circling → **name the exact missing bands** (shared helper with the globe) → "you have every side", with the Finish button relabelled **"Build model now"** so the user is told to stop. That last one is the honest capture-side lever: the walk is Apple's to pace, but over-scanning is ours to prevent. 65 tests green (2 new); build +16 | Install +16 → confirm `v1.0.0+16`, then scan: the goal is to be told when to stop, and to see a stage + time estimate while it builds |
 | 20 | 2026-09-18 | User request: working **torch**, a way **back from every screen**, **delete** on the dashboard, and a labelled **Start scanning** button at the bottom. Torch: `ObjectCaptureSession` owns the camera but exposes no torch control, so `setTorch` drives `AVCaptureDevice` (rear wide-angle) directly — best-effort (a torch is a convenience, never a reason a scan fails), off on session start / complete / fail / cancel so it can never be left burning under a black screen; the button lights (`Semantics(toggled:)`) and rolls back if native refuses. Back: the capture **error layer** and the viewer's **missing-model / non-iOS** screens replace the chrome, so each now carries its own back button, and the unsupported-device explainer has an explicit one — no screen is a dead end anymore. Delete: a trash affordance on every card (plus long-press) → confirm dialog that **names the scan** → `FormaStorage.deleteScanFiles` removes `Scans/{id}` and `Exports/{id}` **before** the row goes (files-first: a leftover row is visible and re-deletable, an orphaned model is hundreds of MB nothing points at). Start scanning: the floating icon became a full-width `PrimaryButton` pinned to the bottom (the empty-state CTA moved into it so there is exactly one entry point). 63 tests green (6 new); build +15 | Install +15 → confirm `v1.0.0+15`; in a dark room tap the torch (icon lights, feed brightens), delete a scan and watch the space come back, and start a scan from the bottom button |
 | 15 | 2026-09-18 | Device screenshot showed Apple's own "Cannot make a view for a deinitialized ObjectCaptureSession" drawn over an all-black feed, with no CTA and a stale feedback hint — a preview bound to a session that was already gone. Six defects fixed from that evidence: (a) the `ObjectCaptureView` platform view was bound *after* `session.start(…)`; Apple's own sample installs the view first, so the view never attached to the live feed → bind before start; (b) `ScanViewportController` tracked only the newest preview, so a session swap left older mounted previews rendering a released session → registry of live previews, all bound/unbound together, registry pruned on platform-view dispose, and the renderer holds its bound session strongly; (c) the preview was never unbound at `.completed`/`.failed` → terminal phases blank it; (d) guidance was INVERTED — `objectTooClose` told the user to move closer and `objectTooFar` to move farther, so the app fought the session's own guidance (gotcha 21); (e) a `.completed` session the app had not driven dead-ended with no CTA and no reconstruction → completion now hands the scan to reconstruction exactly once, including when only the watchdog probe sees it; (f) the camera-dead probe overwrote a specific reason (storage/permission) with the generic camera error. 41 tests green; build +10 | Install +10, confirm `v1.0.0+10`, scan in good light. If the feed is still black, pull the device log — transitions, preview binds and unbinds are all logged |
+| 22 | 2026-09-20 | User: "a small object takes 20-25 minutes to scan, add AI to make it 2-3 minutes". Diagnosed before coding, and the diagnosis changed the plan: **the LiDAR was never the problem.** Two real costs. (a) Time in the *capture*: Object Capture shoots for as long as the user keeps walking, so nothing bounded a session — and our own completion verdict demanded the **underside** band, which an object sitting on a table can never reach, so the checklist was unsatisfiable and the user circled a finished scan (gotcha 35). (b) Time in the *build*: RealityKit was handed 100-200 full-sensor 12 MP frames — roughly two gigapixels — to decode, ML-mask, match and texture-map, for a coffee-cup object (gotcha 36). Shipped: **`ScanProfile`** (quick/balanced/detail) choosing a frame budget (target 35/60/100, hard cap 70/120/200), the image size handed to reconstruction (1536/2048/3072 px) and feature sensitivity; native now **ends the capture itself** at the cap (`session.finish()`) so a scan has a predictable length; **`ImagePreprocessor`** (new — ImageIO + Core Graphics, entirely on-device, nothing downloaded and nothing simulated) rewrites the kept frames smaller with orientation baked in and, only if a session ever overran its budget, keeps the sharpest ones by **variance-of-Laplacian** focus score in capture order so `sampleOrdering: .sequential` stays true; a `preparing` stage plus a composed 0.15/0.85 progress ring so the resize work is visible instead of a ring pinned at 0%; the underside dropped from the completion verdict (still on the globe, now called optional); the capture screen gained a **speed picker** labelled with an honest `~2/5/10 min` and a `42 of 60 photos` budget readout. 69 tests green (4 new); build +17 | Install +17 → confirm `v1.0.0+17`; pick **Quick**, scan a small object: the capture should end on its own near 70 frames, the build should sit briefly in "Getting your photos ready", and the whole thing should land in a couple of minutes. If it is still slow, the device log now carries the numbers (`prepared N/M frames at Npx`, `frame budget reached (N frames in Ns)`) — report those |

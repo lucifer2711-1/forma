@@ -26,7 +26,15 @@ final class ReconstructionService {
         )
         return
       }
-      await self?.reconstruct(scanId: scanId, imagesDirectory: imagesDirectory)
+      // The scan's speed profile is read here rather than passed in, so a
+      // build that starts while a *newer* scan is already running still
+      // rebuilds the right scan's images at the right size.
+      let profile = await capture.profile(scanId: scanId)
+      await self?.reconstruct(
+        scanId: scanId,
+        imagesDirectory: imagesDirectory,
+        profile: profile
+      )
     }
   }
 
@@ -35,17 +43,50 @@ final class ReconstructionService {
     tasks.removeValue(forKey: scanId)?.cancel()
   }
 
-  private func reconstruct(scanId: String, imagesDirectory: URL) async {
+  /// Fraction of the reported build progress that preparing the images owns.
+  ///
+  /// The ring composes the two stages so it only ever moves forwards:
+  /// downsizing a hundred frames is real work the user is waiting for, and a
+  /// ring pinned at 0% through it is exactly the "this is taking forever"
+  /// feeling this whole path exists to remove. Reported as one number because
+  /// to the user it is one build, not two.
+  private static let preparationShare = 0.15
+
+  private func reconstruct(
+    scanId: String,
+    imagesDirectory: URL,
+    profile: ScanProfile
+  ) async {
     let outputURL = FormaStorage.modelURL(scanId: scanId)
+    let preparedDirectory = FormaStorage.preparedImagesDirectory(scanId: scanId)
     do {
       try FileManager.default.createDirectory(
         at: outputURL.deletingLastPathComponent(),
         withIntermediateDirectories: true
       )
       try? FileManager.default.removeItem(at: outputURL)
+
+      // Named before it starts, not after: "Preparing your photos" is an
+      // honest answer to "what is it doing right now?" from the first frame.
+      events.emitReconstructionStage(stage: "preparing", remainingSeconds: nil)
+      let result = try ImagePreprocessor.prepare(
+        imagesDirectory: imagesDirectory,
+        profile: profile,
+        outputDirectory: preparedDirectory
+      ) { [weak self] fraction in
+        self?.events.emitProgress(Self.preparationShare * fraction)
+      }
+      CameraDebugLogger.reconstruct.info(
+        "prepared \(result.outputCount)/\(result.inputCount) frames at \(Int(result.maxDimension))px (\(profile.rawValue, privacy: .public))"
+      )
+      // The prepared frames are a working copy, not a second scan: the
+      // originals stay in `Images/` (they are what a future higher-quality
+      // rebuild would use) and this is dropped either way.
+      defer { try? FileManager.default.removeItem(at: preparedDirectory) }
+
       let session = try PhotogrammetrySession(
-        input: imagesDirectory,
-        configuration: .forma
+        input: result.directory,
+        configuration: profile.configuration
       )
       try session.process(
         requests: [PhotogrammetrySession.Request(modelFile: outputURL)]
@@ -54,6 +95,7 @@ final class ReconstructionService {
         handle(output, scanId: scanId)
       }
     } catch {
+      try? FileManager.default.removeItem(at: preparedDirectory)
       CameraDebugLogger.reconstruct.error(
         "reconstruction failed: \(error.localizedDescription, privacy: .public)"
       )
@@ -67,7 +109,11 @@ final class ReconstructionService {
   ) {
     switch output {
     case .requestProgress(_, fractionComplete: let fraction):
-      events.emitProgress(fraction)
+      // Scaled past the preparation share so the ring keeps moving forwards
+      // from where downsizing the photos left it.
+      events.emitProgress(
+        Self.preparationShare + (1 - Self.preparationShare) * fraction
+      )
     case .requestProgressInfo(_, let info):
       // Apple's own stage and remaining-time estimate, surfaced instead of
       // swallowed. "It takes too much time" is mostly a problem of not
@@ -133,32 +179,5 @@ final class ReconstructionService {
     case .optimization: return "optimizing"
     @unknown default: return "working"
     }
-  }
-}
-
-extension PhotogrammetrySession.Configuration {
-  /// Forma's reconstruction configuration — the fastest path iOS offers.
-  ///
-  /// `sampleOrdering: .sequential` is the real lever available on device.
-  /// Object Capture writes its frames in the order they were captured, walking
-  /// around the object, so declaring the samples ordered lets the session skip
-  /// the exhaustive pairwise matching it otherwise does for unordered input.
-  /// Apple's guideline is explicit: use it when the images are in a sequence.
-  /// (Revert to `.unordered` only if sequential ordering ever produces a
-  /// visibly worse stitch — it trades some robustness for speed.)
-  ///
-  /// There is no detail level to trade against here: **on iOS,
-  /// `Request.Detail` supports only `.reduced`** — `.preview` and `.full` are
-  /// macOS-only. So the geometry stage is already as fast as Apple allows and
-  /// the only remaining wins are the ordering above and telling the user how
-  /// long is left (see `requestProgressInfo`).
-  static var forma: PhotogrammetrySession.Configuration {
-    var configuration = PhotogrammetrySession.Configuration()
-    configuration.sampleOrdering = .sequential
-    // Masking stays on: it is what keeps the turntable and the room out of the
-    // model, and it is also one of the trained ML stages Apple runs for us.
-    configuration.isObjectMaskingEnabled = true
-    configuration.featureSensitivity = .normal
-    return configuration
   }
 }

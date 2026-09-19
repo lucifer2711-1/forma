@@ -43,6 +43,7 @@ const _maxDirections = 240;
 class CaptureUiState {
   CaptureUiState({
     this.phase,
+    this.profile = ScanProfile.balanced,
     this.feedback = CaptureFeedbackType.none,
     this.isReconstructing = false,
     this.reconstructionProgress = 0,
@@ -54,6 +55,9 @@ class CaptureUiState {
     this.isTrackingInitializing = false,
     this.isCapturePending = false,
     this.shots = 0,
+    this.targetShots = 0,
+    this.maxShots = 0,
+    this.hasReachedShotBudget = false,
     this.isScanPassComplete = false,
     this.isReviewingModel = false,
     this.isTorchOn = false,
@@ -66,6 +70,12 @@ class CaptureUiState {
 
   /// Latest bridge capture phase; null until capture starts.
   final CapturePhase? phase;
+
+  /// How hard this scan is allowed to work.
+  ///
+  /// A preference rather than scan state, so it survives the reset at the
+  /// start of a session and applies to the next scan too.
+  final ScanProfile profile;
 
   /// The scan that just finished building, so the capture screen can hand the
   /// user straight to its 360° viewer instead of only announcing it.
@@ -111,6 +121,18 @@ class CaptureUiState {
   /// Frames Object Capture has kept so far in this scan.
   final int shots;
 
+  /// The profile's frame target — the point at which the scan has enough.
+  /// 0 until native reports the budget.
+  final int targetShots;
+
+  /// The profile's frame cap — the point at which the session ends the
+  /// capture by itself. 0 until native reports the budget.
+  final int maxShots;
+
+  /// The frame cap has ended this capture, so no more frames are coming and
+  /// the guidance must stop asking for them.
+  final bool hasReachedShotBudget;
+
   /// The session has captured a complete circle around the object — every
   /// side is covered, so the guidance moves on to the top and the underside
   /// instead of asking for another lap.
@@ -154,11 +176,27 @@ class CaptureUiState {
   /// never covers. Trusting either one alone is how a scan gets finished with
   /// a missing side — which is exactly what "the scan is not precise" looked
   /// like (device-test findings 2026-09-18).
+  ///
+  /// The underside deliberately does not count against completion: an object
+  /// resting on a surface has no underside to walk to, and requiring it kept
+  /// the checklist unsatisfiable — the user circled a finished scan for as
+  /// long as they had patience, which is most of what made a small object take
+  /// twenty minutes (user request 2026-09-20).
   bool get hasEnoughCoverage =>
-      isScanPassComplete && coverage.hasData && coverage.missingBands.isEmpty;
+      isScanPassComplete &&
+      coverage.hasData &&
+      coverage.missingReachableBands.isEmpty;
+
+  /// The bands still missing that the user can actually walk to.
+  List<CoverageBand> get missingReachableBands =>
+      coverage.missingReachableBands;
+
+  /// The underside is all that is left — normal, and optional.
+  bool get isOnlyUndersideMissing => coverage.isOnlyUndersideMissing;
 
   CaptureUiState copyWith({
     CapturePhase? phase,
+    ScanProfile? profile,
     CaptureFeedbackType? feedback,
     bool? isReconstructing,
     double? reconstructionProgress,
@@ -171,6 +209,9 @@ class CaptureUiState {
     bool? isTrackingInitializing,
     bool? isCapturePending,
     int? shots,
+    int? targetShots,
+    int? maxShots,
+    bool? hasReachedShotBudget,
     bool? isScanPassComplete,
     bool? isReviewingModel,
     bool? isTorchOn,
@@ -183,6 +224,7 @@ class CaptureUiState {
   }) {
     return CaptureUiState(
       phase: phase ?? this.phase,
+      profile: profile ?? this.profile,
       feedback: feedback ?? this.feedback,
       isReconstructing: isReconstructing ?? this.isReconstructing,
       reconstructionProgress:
@@ -200,6 +242,10 @@ class CaptureUiState {
           isTrackingInitializing ?? this.isTrackingInitializing,
       isCapturePending: isCapturePending ?? this.isCapturePending,
       shots: shots ?? this.shots,
+      targetShots: targetShots ?? this.targetShots,
+      maxShots: maxShots ?? this.maxShots,
+      hasReachedShotBudget:
+          hasReachedShotBudget ?? this.hasReachedShotBudget,
       isScanPassComplete: isScanPassComplete ?? this.isScanPassComplete,
       isReviewingModel: isReviewingModel ?? this.isReviewingModel,
       isTorchOn: isTorchOn ?? this.isTorchOn,
@@ -292,6 +338,9 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   void _onProgress(CaptureProgress progress) {
     state = state.copyWith(
       shots: progress.shots,
+      targetShots: progress.targetShots,
+      maxShots: progress.maxShots,
+      hasReachedShotBudget: progress.budgetReached,
       isScanPassComplete: progress.passComplete,
     );
   }
@@ -360,6 +409,36 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       if (!_disposed) {
         state = state.copyWith(isTorchOn: !next);
       }
+    }
+  }
+
+  /// Chooses how hard this scan is allowed to work.
+  ///
+  /// Live rather than locked at the start: a user who picked Quick and then
+  /// found the object interesting can raise the budget mid-scan, and one who
+  /// has seen enough can lower it. Native re-reads the cap on every progress
+  /// poll, so the change takes effect on the very next frame.
+  Future<void> selectProfile(ScanProfile profile) async {
+    if (profile == state.profile) {
+      return;
+    }
+    AppHaptics.tap();
+    state = state.copyWith(profile: profile);
+    await _applyProfile(profile);
+  }
+
+  /// Pushes the profile to native.
+  ///
+  /// A failure is logged, not surfaced: the profile is a preference, and
+  /// native already falls back to its own default — turning a rejected
+  /// preference into a screen error would block a scan over nothing. (The
+  /// only realistic cause is a host with no native module at all, where no
+  /// scan can run either way.)
+  Future<void> _applyProfile(ScanProfile profile) async {
+    try {
+      await _bridge.setScanProfile(profile);
+    } on FormaError catch (e) {
+      debugPrint('[forma] scan profile rejected: ${e.debugMessage}');
     }
   }
 
@@ -576,8 +655,11 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     }
     _startingSession = true;
     // Fresh session — clear any stale phase/feedback/error/coverage left over.
+    // The chosen scan speed is the one thing that carries over: it is a
+    // preference, not scan state (user request 2026-09-20).
+    final profile = state.profile;
     _directions.clear();
-    state = CaptureUiState(isSessionStarting: true);
+    state = CaptureUiState(isSessionStarting: true, profile: profile);
     final generation = ++_sessionStartGeneration;
     try {
       _capturingRequested = false;
@@ -590,6 +672,11 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       if (generation != _sessionStartGeneration || _disposed) {
         return; // A newer start()/cancel() superseded this one.
       }
+      // Sent without awaiting: native already seeded this scan's profile from
+      // the last `selectProfile`, and this only re-asserts it. Awaiting here
+      // would put a second channel round trip in front of the watchdog arming
+      // for no benefit — the capture itself cannot start until the user taps.
+      unawaited(_applyProfile(profile));
       // Session created natively; if the first phase event never arrives
       // the watchdog will surface an honest "camera dead" error.
       _resetWatchdog();

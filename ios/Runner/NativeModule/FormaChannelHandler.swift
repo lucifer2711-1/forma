@@ -159,6 +159,13 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
         await self.captureService.setTorchAsync(enabled: enabled)
         self.respond(result, nil)
       }
+    case "setScanProfile":
+      Task { [weak self] in
+        guard let self else { return }
+        let profile = (call.arguments as? [String: Any])?["profile"] as? String
+        await self.captureService.setScanProfileAsync(profile)
+        self.respond(result, nil)
+      }
     case "deleteScan":
       guard
         let scanId = (call.arguments as? [String: Any])?["scanId"] as? String

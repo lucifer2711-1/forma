@@ -31,6 +31,7 @@ abstract final class Strings {
   /// version of "please wait": the user learns the model is being aligned,
   /// then meshed, then textured, instead of watching a number crawl.
   static String reconstructionStageName(String stage) => switch (stage) {
+        'preparing' => reconstructionStagePreparing,
         'preprocessing' => reconstructionStagePreprocessing,
         'aligning' => reconstructionStageAligning,
         'points' => reconstructionStagePoints,
@@ -40,6 +41,9 @@ abstract final class Strings {
         _ => reconstructionWorking,
       };
 
+  /// Our own stage, before RealityKit's: the captured frames are being
+  /// downsized and trimmed, which is real work the user is waiting on.
+  static const reconstructionStagePreparing = 'Getting your photos ready';
   static const reconstructionStagePreprocessing = 'Preparing your photos';
   static const reconstructionStageAligning = 'Aligning the photos';
   static const reconstructionStagePoints = 'Building the point cloud';
@@ -160,6 +164,37 @@ abstract final class Strings {
   /// The Finish CTA once the scan is complete, so stopping reads as the
   /// obvious next step rather than a guess about whether to keep circling.
   static const buildNow = 'Build model now';
+
+  /// The verdict when the only band left is the one nobody can walk to.
+  /// Saying it is optional is the honest version: the alternative is a user
+  /// circling a finished scan trying to reach an underside that the table is
+  /// holding down (user request 2026-09-20).
+  static const undersideOptionalHint =
+      'You have every side. The underside is optional — build it now.';
+
+  // Scan speed: how long a scan is allowed to take.
+
+  /// Heading above the speed picker on the capture screen.
+  static const scanSpeedTitle = 'Scan speed';
+  static const profileQuickLabel = 'Quick';
+  static const profileBalancedLabel = 'Balanced';
+  static const profileDetailLabel = 'Detail';
+
+  /// How long a profile tends to take, said as the estimate it is.
+  static String profileMinutes(int minutes) => '~$minutes min';
+
+  /// Progress toward the profile's frame target.
+  ///
+  /// A bare frame count only ever grows; a count against a target answers
+  /// "how much longer?" from the first frame — which is the whole point of
+  /// the frame budget (user request 2026-09-20).
+  static String shotsOfTarget(int shots, int target) =>
+      '$shots of $target photos';
+
+  /// Shown when the frame cap ended the capture by itself, so stopping reads
+  /// as the app keeping its promise rather than breaking.
+  static const shotBudgetHint =
+      'That is the whole object — building your model now.';
   /// Label for the captured-geometry review (Apple's point cloud).
   static const geometryPillLabel = 'Geometry';
   static const backToCamera = 'Back to camera';
@@ -197,6 +232,12 @@ abstract final class Strings {
 
   static const coverageCompleteHint =
       'Every side is captured. Tap Finish to build the model.';
+
+  /// The panel's verdict when only the underside is missing — the band an
+  /// object resting on a surface cannot offer.
+  static const coverageUndersideOptional =
+      'Every side you can reach is captured. The underside is optional — '
+      'tap Finish to build.';
   static const coverageAlmostHint =
       'Good coverage. Tap Finish now, or keep circling for a sharper model.';
   static const coverageEmptyHint =

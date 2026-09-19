@@ -92,10 +92,47 @@ void main() {
     expect(lap.missingBands, [CoverageBand.top, CoverageBand.bottom]);
   });
 
+  test('the underside does not gate completion — nobody can walk to it', () {
+    // Everything a user can reach on an object sitting on a table: a full
+    // circle plus the top. The underside is still missing, and that is enough.
+    // Requiring it left the checklist permanently unsatisfiable, so the user
+    // kept circling a scan that was already complete — most of what made a
+    // small object take 20-25 minutes (user request 2026-09-20).
+    final reachable = CoverageMap.from([
+      for (var azimuth = 0.0; azimuth < 360; azimuth += 15)
+        direction(polarDegrees: 90, azimuthDegrees: azimuth),
+      for (var polar = 0.0; polar <= 50; polar += 25)
+        for (var azimuth = 0.0; azimuth < 360; azimuth += 45)
+          direction(polarDegrees: polar, azimuthDegrees: azimuth),
+    ]);
+
+    expect(reachable.missingBands, [CoverageBand.bottom]);
+    expect(reachable.missingReachableBands, isEmpty);
+    expect(reachable.isOnlyUndersideMissing, isTrue);
+  });
+
+  test('the top and the sides are still on the checklist', () {
+    // Both are reachable, so neither may be waved through: the top is what a
+    // waist-high circle always misses, and it is a walk away rather than out
+    // of reach.
+    final lap = CoverageMap.from([
+      for (var azimuth = 0.0; azimuth < 360; azimuth += 15)
+        direction(polarDegrees: 90, azimuthDegrees: azimuth),
+    ]);
+
+    expect(lap.missingReachableBands, [CoverageBand.top]);
+    expect(lap.isOnlyUndersideMissing, isFalse);
+  });
+
   test('an empty globe asks for everything and claims nothing', () {
     expect(CoverageMap.empty.hasData, isFalse);
     expect(CoverageMap.empty.fraction, 0);
     expect(CoverageMap.empty.missingBands, CoverageBand.values);
+    expect(
+      CoverageMap.empty.missingReachableBands,
+      [CoverageBand.top, CoverageBand.sides],
+    );
+    expect(CoverageMap.empty.isOnlyUndersideMissing, isFalse);
   });
 
   test('live directions are not coverage', () {

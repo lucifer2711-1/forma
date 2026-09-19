@@ -78,6 +78,15 @@ abstract interface class NativeBridge {
   /// without a torch is not an error: the request is simply a no-op.
   Future<void> setTorch({required bool enabled});
 
+  /// Sets how hard the active scan is allowed to work.
+  ///
+  /// Takes effect immediately: the profile decides the frame budget the
+  /// capture session is held to and the size of the images reconstruction is
+  /// given, which is what makes a scan take two minutes instead of twenty
+  /// (user request 2026-09-20). Safe to call before a session exists — the
+  /// value is kept for the next scan.
+  Future<void> setScanProfile(ScanProfile profile);
+
   /// Deletes every file Forma wrote for [scanId] — its source images, the
   /// reconstructed model, and any exports.
   ///

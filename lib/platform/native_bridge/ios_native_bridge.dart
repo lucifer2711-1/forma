@@ -14,10 +14,11 @@ import 'package:forma/platform/native_bridge/native_bridge.dart';
 ///   `{"type": "phase", "value": "capturing"}` etc.
 ///
 /// Event types: `phase` (CapturePhase name), `feedback` (CaptureFeedbackType
-/// name), `capture_progress` ({shots, passComplete}), `scan_direction`
-/// ({x, y, z, kept}), `model_zoom` (double), `reconstruction_progress`
-/// (double), `reconstruction_stage` ({stage, remainingSeconds?}),
-/// `reconstruction_complete` (model file path), `error` ({code, message}).
+/// name), `capture_progress` ({shots, passComplete, targetShots, maxShots,
+/// budgetReached}), `scan_direction` ({x, y, z, kept}), `model_zoom`
+/// (double), `reconstruction_progress` (double), `reconstruction_stage`
+/// ({stage, remainingSeconds?}), `reconstruction_complete` (model file path),
+/// `error` ({code, message}).
 class IosNativeBridge implements NativeBridge {
   IosNativeBridge({MethodChannel? commands, EventChannel? events})
       : _commands = commands ?? const MethodChannel('com.forma.app/native'),
@@ -70,6 +71,13 @@ class IosNativeBridge implements NativeBridge {
             shots: (payload is Map ? payload['shots'] : null) as int? ?? 0,
             passComplete:
                 (payload is Map ? payload['passComplete'] : null) as bool? ??
+                    false,
+            targetShots:
+                (payload is Map ? payload['targetShots'] : null) as int? ?? 0,
+            maxShots:
+                (payload is Map ? payload['maxShots'] : null) as int? ?? 0,
+            budgetReached:
+                (payload is Map ? payload['budgetReached'] : null) as bool? ??
                     false,
           ),
         );
@@ -264,6 +272,10 @@ class IosNativeBridge implements NativeBridge {
   @override
   Future<void> setTorch({required bool enabled}) =>
       _invoke<void>('setTorch', {'enabled': enabled});
+
+  @override
+  Future<void> setScanProfile(ScanProfile profile) =>
+      _invoke<void>('setScanProfile', {'profile': profile.name});
 
   @override
   Future<void> deleteScan(String scanId) =>

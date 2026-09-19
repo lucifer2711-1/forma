@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/features/capture/coverage/coverage_map.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
 
 import 'native_channel_mock.dart';
@@ -141,9 +142,36 @@ void main() {
     expect(vm.state.coverage.missingBands, isNotEmpty);
     expect(vm.state.hasEnoughCoverage, isFalse);
 
-    // Only once the bands a lap cannot reach are covered too does the app tell
-    // the user they may stop. Rings at 0°, 25° and 50° from each pole fill the
-    // top and the underside within the globe's 32° sector tolerance.
+    // The top is a band the lap misses and a user *can* walk to, so it stays
+    // on the checklist until it is filled — aiming down from above does that.
+    for (var polar = 0.0; polar <= 50; polar += 25) {
+      final radians = polar * math.pi / 180;
+      for (var i = 0; i < 8; i++) {
+        final azimuth = i / 8 * 2 * math.pi;
+        await emitFormaEvent({
+          'type': 'scan_direction',
+          'value': {
+            'x': math.sin(radians) * math.cos(azimuth),
+            'y': math.sin(radians) * math.sin(azimuth),
+            'z': math.cos(radians),
+            'kept': true,
+          },
+        });
+      }
+    }
+    await pumpEventQueue();
+
+    // Everything reachable is captured; only the underside is left, and that
+    // is enough. Requiring it kept users circling a scan that was already
+    // complete, which is most of what made a small object take 20-25 minutes
+    // (user request 2026-09-20).
+    expect(vm.state.coverage.missingBands, [CoverageBand.bottom]);
+    expect(vm.state.isOnlyUndersideMissing, isTrue);
+    expect(vm.state.hasEnoughCoverage, isTrue);
+
+    // Covering the underside as well is still better, and still recognised.
+    // Rings at 0°, 25° and 50° from each pole fill the top and the underside
+    // within the globe's 32° sector tolerance.
     for (final sign in [1.0, -1.0]) {
       for (final polarDegrees in [0.0, 25.0, 50.0]) {
         final polar = polarDegrees * math.pi / 180;
@@ -602,6 +630,64 @@ void main() {
 
     expect(vm.state.phase, CapturePhase.completed);
     expect(reconstructed, ['scan-1']);
+  });
+
+  test('the frame budget is carried through to the guidance', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await emitFormaEvent({'type': 'phase', 'value': 'capturing'});
+    await pumpEventQueue();
+
+    await emitFormaEvent({
+      'type': 'capture_progress',
+      'value': {
+        'shots': 35,
+        'passComplete': false,
+        'targetShots': 35,
+        'maxShots': 70,
+        'budgetReached': false,
+      },
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.shots, 35);
+    expect(vm.state.targetShots, 35);
+    expect(vm.state.maxShots, 70);
+    expect(vm.state.hasReachedShotBudget, isFalse);
+
+    // The cap fired: the session ended the capture by itself, so no more
+    // frames are coming and the guidance has to stop asking for them.
+    await emitFormaEvent({
+      'type': 'capture_progress',
+      'value': {
+        'shots': 70,
+        'passComplete': true,
+        'targetShots': 35,
+        'maxShots': 70,
+        'budgetReached': true,
+      },
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.hasReachedShotBudget, isTrue);
+  });
+
+  test('the scan speed reaches native and survives a new session', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    expect(vm.state.profile, ScanProfile.balanced);
+
+    await vm.selectProfile(ScanProfile.quick);
+    expect(vm.state.profile, ScanProfile.quick);
+    expect(calls, contains('setScanProfile'));
+
+    // Starting a session must not quietly drop the user's choice: the speed is
+    // a preference, not scan state (user request 2026-09-20).
+    await vm.start();
+    await emitFormaEvent({'type': 'phase', 'value': 'detecting'});
+    await pumpEventQueue();
+
+    expect(vm.state.profile, ScanProfile.quick);
   });
 
   test('capture progress drives the guidance and the pass milestone',

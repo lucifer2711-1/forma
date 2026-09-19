@@ -164,6 +164,27 @@ class CoverageMap {
           if (!status.isComplete) status.band,
       ];
 
+  /// The bands still missing that the user can actually walk to.
+  ///
+  /// Everything except the underside. This is the difference between a
+  /// two-minute scan and a twenty-minute one: an object resting on a table has
+  /// no underside to aim at, so gating "you are finished" on the bottom band
+  /// left the checklist permanently unsatisfiable and kept the user circling a
+  /// scan that was already complete (user request 2026-09-20: a small object
+  /// was taking 20-25 minutes).
+  ///
+  /// The globe still *shows* the underside honestly — it is simply optional,
+  /// and the guidance says so rather than pretending otherwise.
+  List<CoverageBand> get missingReachableBands => [
+        for (final status in bands)
+          if (!status.isComplete && status.band != CoverageBand.bottom)
+            status.band,
+      ];
+
+  /// Whether the underside is the only thing left to capture.
+  bool get isOnlyUndersideMissing =>
+      missingReachableBands.isEmpty && missingBands.isNotEmpty;
+
   static List<ScanDirection> _fibonacciSphere(int count) {
     // Golden-angle increments give the most even spacing for a given count.
     final goldenAngle = math.pi * (3 - math.sqrt(5));

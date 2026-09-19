@@ -34,6 +34,24 @@ final class CaptureService {
   private var lastShotsTaken = -1
   private var lastPassComplete = false
 
+  /// How hard each scan is allowed to work, keyed by scan id.
+  ///
+  /// Per scan rather than one global: a build can still be running after the
+  /// user has started the next scan, and that next scan may be at a different
+  /// speed. Losing that distinction would rebuild the previous scan's images
+  /// at the wrong size (user request 2026-09-20: make scanning fast).
+  private var profiles: [String: ScanProfile] = [:]
+
+  /// The profile a session created before any explicit choice will use.
+  private var pendingProfile: ScanProfile = .balanced
+
+  /// Set once a session has been told to stop at its frame budget, so the
+  /// auto-finish happens exactly once per scan.
+  private var didReachShotBudget = false
+
+  /// When the session entered `.capturing`, only for the log line.
+  private var capturingStartedAt: Date?
+
   /// How often the session's `state` property is polled. It is a cheap
   /// property read on the main actor.
   private static let statePollNanoseconds: UInt64 = 200_000_000
@@ -79,6 +97,42 @@ final class CaptureService {
   /// Turns the rear torch on/off on the main actor.
   nonisolated func setTorchAsync(enabled: Bool) async {
     await setTorch(enabled: enabled)
+  }
+
+  /// Applies a scan speed profile on the main actor.
+  nonisolated func setScanProfileAsync(_ name: String?) async {
+    await setScanProfile(name)
+  }
+
+  // MARK: Scan profile
+
+  /// Sets how hard the active scan may work.
+  ///
+  /// Applies to the running scan immediately, which is the point: the frame
+  /// budget is what bounds the capture, and the image size is what bounds the
+  /// build. Safe to call before a session exists — the value is kept for the
+  /// next scan.
+  func setScanProfile(_ name: String?) {
+    let profile = ScanProfile.named(name)
+    if let scanId {
+      profiles[scanId] = profile
+      // A raised budget re-opens a scan that had already hit the old one;
+      // a lowered one is picked up by the next progress poll.
+      if lastShotsTaken < profile.maxShots {
+        didReachShotBudget = false
+      }
+    } else {
+      // No session yet: remember it as the default for the next scan.
+      pendingProfile = profile
+    }
+    CameraDebugLogger.capture.info(
+      "scan profile → \(profile.rawValue, privacy: .public) (target \(profile.targetShots), max \(profile.maxShots), \(Int(profile.maxImageDimension))px)"
+    )
+  }
+
+  /// The profile a scan is running (or finished) with.
+  func profile(scanId: String) -> ScanProfile {
+    profiles[scanId] ?? pendingProfile
   }
 
   // MARK: Torch
@@ -182,10 +236,13 @@ final class CaptureService {
     )
     self.session = session
     recordScan(scanId, imagesDirectory: imagesDirectory)
+    profiles[scanId] = pendingProfile
     lastHandledPhase = nil
     lastShotsTaken = -1
     lastPassComplete = false
     lastLiveDirectionAt = nil
+    didReachShotBudget = false
+    capturingStartedAt = nil
     // Direction tracking starts with the session: the coverage globe is
     // built from where the user stood for each frame Object Capture kept.
     directions.start()
@@ -291,6 +348,7 @@ final class CaptureService {
   func cancel(scanId: String) {
     let imagesDirectory = imagesDirectories.removeValue(forKey: scanId)
     completedScans.remove(scanId)
+    profiles.removeValue(forKey: scanId)
     if let waiters = completionWaiters.removeValue(forKey: scanId) {
       for waiter in waiters {
         waiter.resume(returning: nil)
@@ -311,6 +369,8 @@ final class CaptureService {
       lastShotsTaken = -1
       lastPassComplete = false
       lastLiveDirectionAt = nil
+      didReachShotBudget = false
+      capturingStartedAt = nil
       directions.stop()
       stateTask?.cancel()
       feedbackTask?.cancel()
@@ -403,12 +463,64 @@ final class CaptureService {
     // the first poll must not read "0 shots" as "a frame was just kept" —
     // that would paint a covered side before the user has aimed at anything.
     let isNewShot = lastShotsTaken >= 0 && shots > lastShotsTaken
+    let profile = profiles[scanId ?? ""] ?? pendingProfile
     if shots != lastShotsTaken || passComplete != lastPassComplete {
       lastShotsTaken = shots
       lastPassComplete = passComplete
-      events.emitCaptureProgress(shots: shots, passComplete: passComplete)
+      emitProgress(
+        shots: shots,
+        passComplete: passComplete,
+        profile: profile,
+        budgetReached: didReachShotBudget
+      )
+    }
+    // The frame budget is what bounds how long a capture can run.
+    //
+    // Object Capture will happily keep shooting for as long as the user keeps
+    // walking, and every extra frame costs the user time twice over — once to
+    // shoot, once to reconstruct. Ending the capture here is what turns
+    // "circling until I happen to stop" into a scan with a predictable
+    // length, and it is the honest counterpart to the image size the profile
+    // hands the build (user request 2026-09-20: a small object was taking
+    // 20-25 minutes to scan).
+    if Self.phaseName(session.state) == "capturing",
+      !didReachShotBudget,
+      shots >= profile.maxShots
+    {
+      didReachShotBudget = true
+      let elapsed = capturingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+      CameraDebugLogger.capture.info(
+        "frame budget reached (\(shots) frames in \(Int(elapsed))s, \(profile.rawValue, privacy: .public)) — finishing the capture"
+      )
+      emitProgress(
+        shots: shots,
+        passComplete: passComplete,
+        profile: profile,
+        budgetReached: true
+      )
+      session.finish()
     }
     publishDirection(from: session, kept: isNewShot)
+  }
+
+  /// Publishes coverage progress and the scan's frame budget in one event.
+  ///
+  /// The budget travels with the counts on purpose: the UI needs the target
+  /// to say "42 of 60 photos", and the cap to know that the capture is about
+  /// to end by itself rather than because the user tapped something.
+  private func emitProgress(
+    shots: Int,
+    passComplete: Bool,
+    profile: ScanProfile,
+    budgetReached: Bool
+  ) {
+    events.emitCaptureProgress(
+      shots: shots,
+      passComplete: passComplete,
+      targetShots: profile.targetShots,
+      maxShots: profile.maxShots,
+      budgetReached: budgetReached
+    )
   }
 
   /// Reports where the phone is pointed.
@@ -469,6 +581,10 @@ final class CaptureService {
     )
     viewport?.forwardPhase(name)
     switch state {
+    case .capturing:
+      if capturingStartedAt == nil {
+        capturingStartedAt = Date()
+      }
     case .ready:
       // Auto-advance to bounding-box detection; the capture view
       // (Phase 2) lets the user confirm the box before capture begins.

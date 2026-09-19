@@ -60,6 +60,39 @@ class CaptureFeedback {
   final CaptureFeedbackType type;
 }
 
+/// How hard a scan is allowed to work (mirrors Swift `ScanProfile`).
+///
+/// The single knob behind "make a scan take two minutes instead of twenty".
+/// A profile bounds three real costs at once: how many frames the capture may
+/// keep, how large the images handed to reconstruction are, and how hard the
+/// reconstruction looks for features.
+///
+/// It exists because on-device reconstruction is, measurably, a pixel-count
+/// problem and Apple leaves almost nothing to trade away — `Request.Detail`
+/// is `.reduced`-only on iOS — so the only lever left is *which and how many*
+/// images go in (user request 2026-09-20: scanning a small object took
+/// 20–25 minutes).
+enum ScanProfile {
+  /// Pay for speed: a small object, a phone screen, a quick turnaround.
+  quick,
+
+  /// The default — a good model without a long wait.
+  balanced,
+
+  /// Pay for detail: texture-rich objects that reward a closer look.
+  detail;
+
+  /// Roughly how long a whole scan takes, for the picker.
+  ///
+  /// Deliberately coarse: the number exists to set the expectation *before*
+  /// the scan starts, and a promise in seconds is one this app cannot keep.
+  int get approximateMinutes => switch (this) {
+        ScanProfile.quick => 2,
+        ScanProfile.balanced => 5,
+        ScanProfile.detail => 10,
+      };
+}
+
 /// Coverage progress while a capture is running.
 ///
 /// [shots] is how many frames Object Capture has kept so far; [passComplete]
@@ -67,9 +100,20 @@ class CaptureFeedback {
 /// circle around the object — the session's own "every side is covered"
 /// milestone. Both drive the capture guidance, so the user is told which
 /// sides still need scanning instead of re-scanning a finished one.
+///
+/// [targetShots] and [maxShots] are the scan profile's frame budget:
+/// [targetShots] is when the scan has enough, [maxShots] when the session
+/// ends the capture by itself. Together they are what makes the length of a
+/// scan predictable instead of a function of how long the user keeps walking.
 class CaptureProgress {
   /// Creates a progress snapshot.
-  const CaptureProgress({required this.shots, required this.passComplete});
+  const CaptureProgress({
+    required this.shots,
+    required this.passComplete,
+    this.targetShots = 0,
+    this.maxShots = 0,
+    this.budgetReached = false,
+  });
 
   /// No progress reported yet.
   static const empty = CaptureProgress(shots: 0, passComplete: false);
@@ -79,6 +123,16 @@ class CaptureProgress {
 
   /// Whether the session has completed a full scan pass.
   final bool passComplete;
+
+  /// The frame count the profile aims for, or 0 when native has not said.
+  final int targetShots;
+
+  /// The frame count at which the session ends the capture, or 0 when
+  /// native has not said.
+  final int maxShots;
+
+  /// The frame budget has ended this capture, so no more frames are coming.
+  final bool budgetReached;
 }
 
 /// A direction on the scan globe: the object's surface that was facing the

@@ -19,6 +19,7 @@ void main() {
     final calls = <String>[];
     Map<Object?, Object?>? reviewArgs;
     Map<Object?, Object?>? torchArgs;
+    Map<Object?, Object?>? profileArgs;
     mockFormaMethods((call) async {
       calls.add(call.method);
       if (call.method == 'setCaptureReviewMode') {
@@ -26,6 +27,9 @@ void main() {
       }
       if (call.method == 'setTorch') {
         torchArgs = call.arguments as Map<Object?, Object?>?;
+      }
+      if (call.method == 'setScanProfile') {
+        profileArgs = call.arguments as Map<Object?, Object?>?;
       }
       switch (call.method) {
         case 'isScanSupported':
@@ -64,6 +68,17 @@ void main() {
     final semantics = tester.ensureSemantics();
     expect(find.bySemanticsLabel(Strings.captureStepLabel(1)), findsOneWidget);
 
+    // The scan speed is chosen here, before the capture starts, because it is
+    // the decision the user is actually making at that moment — "how long is
+    // this going to take?" — and the honest answer to "why is scanning slow?"
+    // is to let them trade detail for time up front (user request 2026-09-20).
+    expect(find.text(Strings.profileQuickLabel), findsOneWidget);
+    expect(find.text(Strings.profileBalancedLabel), findsOneWidget);
+    expect(find.text(Strings.profileDetailLabel), findsOneWidget);
+    await tester.tap(find.text(Strings.profileQuickLabel));
+    await tester.pump();
+    expect(profileArgs, {'profile': 'quick'});
+
     // Once the session is live, the guidance names the current step — and the
     // middle of the screen stays free for Object Capture's own AR guidance.
     await tester.runAsync(
@@ -88,6 +103,10 @@ void main() {
     await tester.pump();
     expect(find.text(Strings.finishCapture), findsOneWidget);
     expect(find.text(Strings.gettingReady), findsNothing);
+
+    // Frames are landing: the speed is no longer a choice to make, and the
+    // bottom of the screen belongs to the shutter.
+    expect(find.text(Strings.profileQuickLabel), findsNothing);
 
     // The torch is a real control, not a placeholder: the button reaches
     // native and lights up, which is what makes it usable in a dim room
@@ -148,12 +167,20 @@ void main() {
     await tester.runAsync(
       () => emitFormaEvent({
         'type': 'capture_progress',
-        'value': {'shots': 42, 'passComplete': false},
+        'value': {
+          'shots': 42,
+          'passComplete': false,
+          'targetShots': 60,
+          'maxShots': 120,
+          'budgetReached': false,
+        },
       }),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
-    expect(find.text(Strings.photosCaptured(42)), findsOneWidget);
+    // Against the profile's frame target, so "how much longer?" has an answer
+    // from the first frame instead of a count that only ever grows.
+    expect(find.text(Strings.shotsOfTarget(42, 60)), findsOneWidget);
     expect(find.text(Strings.capturingHint), findsOneWidget);
 
     // Once the session says a full pass is captured, asking for another lap
@@ -195,13 +222,22 @@ void main() {
     expect(find.byType(CoverageGlobe), findsOneWidget);
     // The sides still missing are named here, so the user knows where to walk.
     // Scoped to the panel because the live hint behind it names the same gap
-    // (both read from one shared helper, which is the point).
+    // (both read from one shared helper, which is the point). The underside is
+    // deliberately absent from the advice: the user cannot walk to it, and
+    // asking for it is what kept them circling a finished scan.
+    expect(
+      find.descendant(
+        of: find.byType(CoveragePanel),
+        matching: find.textContaining(Strings.coverageNameTop),
+      ),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
         of: find.byType(CoveragePanel),
         matching: find.textContaining(Strings.coverageNameBottom),
       ),
-      findsOneWidget,
+      findsNothing,
     );
 
     // Closing it returns to the live feed.

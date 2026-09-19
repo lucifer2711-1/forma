@@ -175,6 +175,10 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
               // full-coverage scan needs (device-test finding 2026-09-18).
               const Spacer(),
               _buildStepDots(state),
+              // Only before a capture starts: once frames are landing the
+              // speed is no longer a decision the user is making, and the
+              // bottom of the screen belongs to the shutter.
+              if (_showsStartButton(state)) _buildProfilePicker(state),
             ],
             _buildBottomControls(state),
           ],
@@ -321,7 +325,13 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         spacing: AppSpacing.sm,
         children: [
           Text(
-            Strings.photosCaptured(state.shots),
+            // Against a target when native has reported one: "18 of 35
+            // photos" answers "how much longer?" on the first frame, which a
+            // count that only ever grows never does (user request 2026-09-20:
+            // a small object was taking 20-25 minutes).
+            state.targetShots > 0
+                ? Strings.shotsOfTarget(state.shots, state.targetShots)
+                : Strings.photosCaptured(state.shots),
             style: AppTypography.caption.copyWith(color: colors.textSecondary),
           ),
           if (coverage.hasData)
@@ -455,6 +465,98 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     );
   }
 
+  /// The scan-speed picker, shown before a capture starts.
+  ///
+  /// It lives on this screen rather than behind settings because it is the
+  /// decision the user is actually making at that moment — "how long is this
+  /// going to take?" — and because the honest answer to "why is scanning
+  /// slow?" is to let them choose the trade before they spend the time
+  /// (user request 2026-09-20).
+  Widget _buildProfilePicker(CaptureUiState state) {
+    final colors = FormaColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            Strings.scanSpeedTitle,
+            style: AppTypography.caption.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (final profile in ScanProfile.values) ...[
+                _buildProfileChip(profile, state.profile),
+                if (profile != ScanProfile.values.last)
+                  const SizedBox(width: AppSpacing.sm),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileChip(ScanProfile profile, ScanProfile selected) {
+    final colors = FormaColors.of(context);
+    final isSelected = profile == selected;
+    final label = _profileLabel(profile);
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: '$label, ${Strings.profileMinutes(profile.approximateMinutes)}',
+      child: Material(
+        color: isSelected
+            ? colors.accent
+            : colors.bgElevated.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => unawaited(
+            ref.read(captureViewModelProvider.notifier).selectProfile(profile),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: AppTypography.headline.copyWith(
+                    color: isSelected ? Colors.white : colors.textPrimary,
+                  ),
+                ),
+                Text(
+                  Strings.profileMinutes(profile.approximateMinutes),
+                  style: AppTypography.caption.copyWith(
+                    color: isSelected
+                        ? Colors.white.withValues(alpha: 0.85)
+                        : colors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The picker's label for a profile.
+  ///
+  /// Mapped here rather than on [ScanProfile] so the wire enum stays a wire
+  /// enum and every user-facing word stays in `Strings` (rules.md §2).
+  String _profileLabel(ScanProfile profile) => switch (profile) {
+        ScanProfile.quick => Strings.profileQuickLabel,
+        ScanProfile.balanced => Strings.profileBalancedLabel,
+        ScanProfile.detail => Strings.profileDetailLabel,
+      };
+
   Widget _buildStartButton() => PrimaryButton(
         label: Strings.scanCta,
         onPressed: () {
@@ -524,15 +626,22 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       case CapturePhase.detecting:
         return Strings.detectingHint;
       case CapturePhase.capturing:
+        // The frame cap has ended this capture; asking for more frames the
+        // session will never take would be a lie about what is happening.
+        if (state.hasReachedShotBudget) {
+          return Strings.shotBudgetHint;
+        }
         // The guidance narrows as the scan fills in, because each extra lap
         // costs the user time and adds nothing. In order: keep circling →
         // name the exact sides still missing → tell them to stop.
         if (state.hasEnoughCoverage) {
-          return Strings.enoughCoverageHint;
+          return state.isOnlyUndersideMissing
+              ? Strings.undersideOptionalHint
+              : Strings.enoughCoverageHint;
         }
         if (state.isScanPassComplete && state.coverage.hasData) {
           return Strings.stillToScanHint(
-            joinCoverageBandNames(state.coverage.missingBands),
+            joinCoverageBandNames(state.missingReachableBands),
           );
         }
         // Apple's own milestone but no direction data to narrow it down with:
