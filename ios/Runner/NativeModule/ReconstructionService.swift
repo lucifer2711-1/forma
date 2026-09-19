@@ -113,9 +113,17 @@ final class ReconstructionService {
   ///
   /// Kept as a token rather than a sentence: the wording lives in Dart with
   /// the rest of the UI copy (rules.md §2 — no user-facing English in Swift).
+  ///
+  /// The stage is optional — RealityKit reports nil before it has entered a
+  /// named step, which is not the same as being finished, so that case reads
+  /// as "working" rather than being dropped (CI caught this: the docs page
+  /// does not show the `?`).
   static func stageName(
-    _ stage: PhotogrammetrySession.Output.ProcessingStage
+    _ stage: PhotogrammetrySession.Output.ProcessingStage?
   ) -> String {
+    guard let stage else {
+      return "working"
+    }
     switch stage {
     case .preProcessing: return "preprocessing"
     case .imageAlignment: return "aligning"

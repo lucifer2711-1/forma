@@ -212,10 +212,13 @@ in CI (GitHub Actions public repo). Test device: iPhone 16 Pro Max (LiDAR).
     it.** `PhotogrammetrySession.Output` has `.requestProgressInfo(request,
     progressInfo)` where `Output.ProgressInfo` carries exactly two things:
     `estimatedRemainingTime: TimeInterval?` (nil early in a build — never
-    substitute 0) and `processingStage: Output.ProcessingStage` with cases
+    substitute 0) and `processingStage` with cases
     `preProcessing / imageAlignment / pointCloudGeneration / meshGeneration /
-    textureMapping / optimization`. Also worth logging, because they explain a
-    coarse result rather than a failure: `.automaticDownsampling` (memory
+    textureMapping / optimization`. **Both are optional, and the docs page
+    hides it** — `processingStage` shows no `?` at all, which is exactly how
+    the +16 build failed to compile. Always unwrap. Also worth logging,
+    because they explain a coarse result rather than a failure:
+    `.automaticDownsampling` (memory
     pressure shrank the input images) and `.stitchingIncomplete` (coverage was
     missing). Keep stage names as tokens in Swift and the wording in
     `Strings` — no user-facing English in the native module.
