@@ -38,7 +38,7 @@ enum ImagePreprocessor {
   /// Small on purpose: the score only has to rank frames against each other,
   /// and a 256 px grayscale buffer makes that nearly free next to decoding a
   /// full frame.
-  private static let scoreDimension = 256
+  private static let scoreDimension: CGFloat = 256
 
   /// Below this many frames nothing is dropped, however blurry.
   ///
