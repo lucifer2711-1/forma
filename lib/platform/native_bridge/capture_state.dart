@@ -113,6 +113,7 @@ class CaptureProgress {
     this.targetShots = 0,
     this.maxShots = 0,
     this.budgetReached = false,
+    this.canCapture = false,
   });
 
   /// No progress reported yet.
@@ -133,6 +134,14 @@ class CaptureProgress {
 
   /// The frame budget has ended this capture, so no more frames are coming.
   final bool budgetReached;
+
+  /// Whether the session can take a manual frame right now.
+  ///
+  /// Read from `ObjectCaptureSession.canRequestImageCapture`, which is the
+  /// only thing that knows: a manual request is silently ignored in any other
+  /// state, so the guided shutter follows this rather than the phase. A
+  /// button that greys out honestly beats a tap that vanishes.
+  final bool canCapture;
 }
 
 /// A direction on the scan globe: the object's surface that was facing the

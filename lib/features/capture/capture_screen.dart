@@ -11,9 +11,11 @@ import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/design_system/tokens/motion.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/features/capture/coverage/capture_steps.dart';
 import 'package:forma/features/capture/coverage/coverage_guidance.dart';
 import 'package:forma/features/capture/widgets/camera_health_overlay.dart';
 import 'package:forma/features/capture/widgets/camera_preview.dart';
+import 'package:forma/features/capture/widgets/capture_step_bar.dart';
 import 'package:forma/features/capture/widgets/centered_message.dart';
 import 'package:forma/features/capture/widgets/coverage_panel.dart';
 import 'package:forma/features/capture/widgets/reconstruction_panel.dart';
@@ -349,6 +351,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // The guided walk, one named side at a time. Tapping a side asks
+          // for it next, which is the user's escape hatch from the order
+          // rather than a rule they are stuck with.
+          CaptureStepBar(
+            plan: state.stepPlan,
+            onSelect: (id) =>
+                ref.read(captureViewModelProvider.notifier).focusStep(id),
+          ),
+          if (state.stepPlan.isAnchored) const SizedBox(height: AppSpacing.sm),
+          _buildStepActions(state),
           // Two different questions, two answers: "which sides are done?"
           // (the globe) and "what did it actually capture?" (the geometry).
           Row(
@@ -385,7 +397,15 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          _buildFinishButton(state),
+          // The shutter sits beside the primary action: the tap the user was
+          // asked for, and the button that ends the scan, in one place.
+          Row(
+            children: [
+              _buildShutter(state),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(child: _buildFinishButton(state)),
+            ],
+          ),
         ],
       );
     }
@@ -401,7 +421,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         scale: Tween<double>(begin: 1, end: 1.05).animate(
           CurvedAnimation(parent: _pulse, curve: Motion.curvePulse),
         ),
-        child: _buildStartButton(),
+        child: _buildStartButton(state),
       );
     }
     return const SizedBox(height: 56);
@@ -557,8 +577,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         ScanProfile.detail => Strings.profileDetailLabel,
       };
 
-  Widget _buildStartButton() => PrimaryButton(
-        label: Strings.scanCta,
+  /// The capture CTA.
+  ///
+  /// It is relabelled during the flipped second pass, because that pass is not
+  /// "start a scan" — it is the one side the user could not walk to, and saying
+  /// so is the difference between a button they understand and one they have to
+  /// guess at.
+  Widget _buildStartButton(CaptureUiState state) => PrimaryButton(
+        label: state.isUndersidePass
+            ? Strings.scanUnderside
+            : Strings.scanCta,
         onPressed: () {
           AppHaptics.tap();
           unawaited(
@@ -566,6 +594,83 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
           );
         },
       );
+
+  /// The manual shutter for the side the walk just asked for.
+  ///
+  /// This is a real capture (`requestImageCapture`), so the button is only
+  /// enabled when the session says it can take a frame — `canCapture` comes
+  /// straight from `ObjectCaptureSession.canRequestImageCapture`, and a tap in
+  /// any other state is silently ignored by the OS. A greyed shutter is an
+  /// honest "hold steady", where a tap that vanishes is a bug report.
+  Widget _buildShutter(CaptureUiState state) {
+    final colors = FormaColors.of(context);
+    final isEnabled = state.canCapture && !state.isFrameRequestPending;
+    return Semantics(
+      button: true,
+      enabled: isEnabled,
+      label: Strings.shutterLabel,
+      child: Material(
+        color: isEnabled
+            ? colors.accent
+            : colors.bgElevated.withValues(alpha: 0.72),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: isEnabled
+              ? () => unawaited(
+                    ref.read(captureViewModelProvider.notifier).captureStep(),
+                  )
+              : null,
+          child: SizedBox(
+            width: 60,
+            height: 60,
+            child: Icon(
+              Icons.camera_alt,
+              size: 26,
+              color: isEnabled ? Colors.white : colors.textTertiary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Skip and flip, the two ways out of a side.
+  ///
+  /// Skip exists because a checklist nobody can satisfy is worse than no
+  /// checklist: an object that cannot be turned over has no underside, and the
+  /// user has to be able to say so rather than circle forever (gotcha 35).
+  /// Flip is the deliberate second pass for the side that is *not* out of
+  /// reach, only out of sight.
+  Widget _buildStepActions(CaptureUiState state) {
+    if (!state.stepPlan.isAnchored) {
+      return const SizedBox.shrink();
+    }
+    final current = state.stepPlan.currentId;
+    if (current == null) {
+      return const SizedBox.shrink();
+    }
+    final isUnderside = current == CaptureStepId.underside;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (isUnderside && !state.isUndersidePass)
+          TextButton(
+            onPressed: () => unawaited(
+              ref
+                  .read(captureViewModelProvider.notifier)
+                  .beginUndersidePass(),
+            ),
+            child: const Text(Strings.flipAndScan),
+          ),
+        TextButton(
+          onPressed: () =>
+              ref.read(captureViewModelProvider.notifier).skipStep(),
+          child: const Text(Strings.skipSide),
+        ),
+      ],
+    );
+  }
 
   /// Finish, relabelled once the scan is complete.
   ///
@@ -630,6 +735,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         // session will never take would be a lie about what is happening.
         if (state.hasReachedShotBudget) {
           return Strings.shotBudgetHint;
+        }
+        // The guided walk leads, because it is the most specific guidance
+        // there is: one named side, in the user's own frame of reference,
+        // instead of a band name they have to translate into a direction to
+        // walk. It is also what makes the scan short — six known steps with a
+        // visible end, rather than a lap the user has to judge for themselves
+        // (user request 2026-09-20).
+        if (state.stepPlan.isAnchored) {
+          final step = state.stepPlan.currentId;
+          if (step == null) {
+            return Strings.guidedCompleteHint;
+          }
+          return sideHint(step);
+        }
+        // Before anything is on the card there is no side to name yet, and the
+        // one thing worth saying is how to start the walk.
+        //
+        // Deliberately not "no directions have arrived": a scan that has kept
+        // frames without reporting directions is a device that cannot guide by
+        // bearing, and that case falls through to the band guidance below,
+        // which needs no bearing to be useful.
+        if (state.directions.isEmpty && state.shots == 0) {
+          return Strings.guidedStartHint;
         }
         // The guidance narrows as the scan fills in, because each extra lap
         // costs the user time and adds nothing. In order: keep circling →

@@ -159,6 +159,14 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
         await self.captureService.setTorchAsync(enabled: enabled)
         self.respond(result, nil)
       }
+    case "requestImageCapture":
+      withScanId(call, result: result, domain: .capture) { scanId in
+        try await self.captureService.requestImageCaptureAsync(scanId: scanId)
+      }
+    case "beginPassAfterFlip":
+      withScanId(call, result: result, domain: .capture) { scanId in
+        try await self.captureService.beginPassAfterFlipAsync(scanId: scanId)
+      }
     case "setScanProfile":
       Task { [weak self] in
         guard let self else { return }

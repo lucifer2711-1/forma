@@ -8,6 +8,7 @@ import 'package:forma/core/models/scan.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/haptics/app_haptics.dart';
+import 'package:forma/features/capture/coverage/capture_steps.dart';
 import 'package:forma/features/capture/coverage/coverage_map.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
 import 'package:forma/platform/native_bridge/native_bridge.dart';
@@ -58,6 +59,12 @@ class CaptureUiState {
     this.targetShots = 0,
     this.maxShots = 0,
     this.hasReachedShotBudget = false,
+    this.canCapture = false,
+    this.isFrameRequestPending = false,
+    this.skippedSteps = const {},
+    this.focusedStep,
+    this.flipKeptCount,
+    this.isUndersidePass = false,
     this.isScanPassComplete = false,
     this.isReviewingModel = false,
     this.isTorchOn = false,
@@ -133,6 +140,30 @@ class CaptureUiState {
   /// the guidance must stop asking for them.
   final bool hasReachedShotBudget;
 
+  /// Whether the session can take a manual frame right now.
+  ///
+  /// Drives the guided shutter's enabled state. Native reads it from
+  /// `canRequestImageCapture`, so the button greys out exactly when a tap
+  /// would be dropped instead of promising something the session will refuse.
+  final bool canCapture;
+
+  /// A shutter tap has been sent and not yet answered.
+  final bool isFrameRequestPending;
+
+  /// Sides the user deliberately skipped (an underside that cannot be turned).
+  final Set<CaptureStepId> skippedSteps;
+
+  /// A side the user tapped to do out of order.
+  final CaptureStepId? focusedStep;
+
+  /// How many frames had been kept when the object was flipped over, or null
+  /// before any flip. See [CaptureStepPlan] for why the underside is counted
+  /// from the flip rather than from a direction.
+  final int? flipKeptCount;
+
+  /// The object has been flipped and its second pass has not finished yet.
+  final bool isUndersidePass;
+
   /// The session has captured a complete circle around the object — every
   /// side is covered, so the guidance moves on to the top and the underside
   /// instead of asking for another lap.
@@ -165,6 +196,17 @@ class CaptureUiState {
   /// free instead of paying for it on a glance the user never took.
   late final CoverageMap coverage = CoverageMap.from(directions);
 
+  /// The guided six-side walk, tracked against the frames really kept.
+  ///
+  /// Lazy for the same reason [coverage] is: every kept frame rebuilds this
+  /// state, and the walk tests each side against every direction.
+  late final CaptureStepPlan stepPlan = CaptureStepPlan.from(
+    kept: directions,
+    skipped: skippedSteps,
+    focused: focusedStep,
+    flipKeptCount: flipKeptCount,
+  );
+
   bool get isIdle =>
       phase == null && !isReconstructing && error == null && !isCameraLive;
 
@@ -182,10 +224,17 @@ class CaptureUiState {
   /// the checklist unsatisfiable — the user circled a finished scan for as
   /// long as they had patience, which is most of what made a small object take
   /// twenty minutes (user request 2026-09-20).
+  ///
+  /// The guided walk has to be finished too, when there is one: the walk is
+  /// where the user was asked for each named side, and calling the scan done
+  /// with sides still unnamed would make the checklist decorative. It can
+  /// always be finished — every side can be captured or skipped — so it can
+  /// never trap anyone (gotcha 35).
   bool get hasEnoughCoverage =>
       isScanPassComplete &&
       coverage.hasData &&
-      coverage.missingReachableBands.isEmpty;
+      coverage.missingReachableBands.isEmpty &&
+      stepPlan.isComplete;
 
   /// The bands still missing that the user can actually walk to.
   List<CoverageBand> get missingReachableBands =>
@@ -212,6 +261,14 @@ class CaptureUiState {
     int? targetShots,
     int? maxShots,
     bool? hasReachedShotBudget,
+    bool? canCapture,
+    bool? isFrameRequestPending,
+    Set<CaptureStepId>? skippedSteps,
+    CaptureStepId? focusedStep,
+    bool clearFocusedStep = false,
+    int? flipKeptCount,
+    bool clearFlipKeptCount = false,
+    bool? isUndersidePass,
     bool? isScanPassComplete,
     bool? isReviewingModel,
     bool? isTorchOn,
@@ -246,6 +303,14 @@ class CaptureUiState {
       maxShots: maxShots ?? this.maxShots,
       hasReachedShotBudget:
           hasReachedShotBudget ?? this.hasReachedShotBudget,
+      canCapture: canCapture ?? this.canCapture,
+      isFrameRequestPending:
+          isFrameRequestPending ?? this.isFrameRequestPending,
+      skippedSteps: skippedSteps ?? this.skippedSteps,
+      focusedStep: clearFocusedStep ? null : (focusedStep ?? this.focusedStep),
+      flipKeptCount:
+          clearFlipKeptCount ? null : (flipKeptCount ?? this.flipKeptCount),
+      isUndersidePass: isUndersidePass ?? this.isUndersidePass,
       isScanPassComplete: isScanPassComplete ?? this.isScanPassComplete,
       isReviewingModel: isReviewingModel ?? this.isReviewingModel,
       isTorchOn: isTorchOn ?? this.isTorchOn,
@@ -279,6 +344,8 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   Timer? _watchdog;
   Timer? _captureRetry;
   final _directions = <ScanDirection>[];
+  final _skipped = <CaptureStepId>{};
+  CaptureStepId? _focusedStep;
   String? _scanId;
   bool _capturingRequested = false;
   bool _startingSession = false;
@@ -341,6 +408,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
       targetShots: progress.targetShots,
       maxShots: progress.maxShots,
       hasReachedShotBudget: progress.budgetReached,
+      canCapture: progress.canCapture,
       isScanPassComplete: progress.passComplete,
     );
   }
@@ -442,6 +510,109 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     }
   }
 
+  // MARK: The guided side-by-side walk
+
+  /// Captures the side the walk is asking for.
+  ///
+  /// The tap is a real manual frame (`requestImageCapture`), not a nudge: the
+  /// user was asked for a named side, aimed at it, and pressed the button.
+  /// Errors are logged and left on the shutter itself — the button is already
+  /// greyed whenever the session says it cannot take a frame, so turning a
+  /// refused tap into a screen error would block a working capture over a
+  /// timing hiccup.
+  Future<void> captureStep() async {
+    final id = _scanId;
+    if (id == null || state.isFrameRequestPending) {
+      return;
+    }
+    state = state.copyWith(isFrameRequestPending: true);
+    try {
+      await _bridge.requestImageCapture(id);
+      AppHaptics.tap();
+    } on FormaError catch (e) {
+      debugPrint('[forma] manual frame refused: ${e.debugMessage}');
+      AppHaptics.error();
+    } finally {
+      if (!_disposed) {
+        state = state.copyWith(isFrameRequestPending: false);
+      }
+    }
+  }
+
+  /// Skips the side being asked for.
+  ///
+  /// A skip is a deliberate answer, recorded as one: the underside of a fixed
+  /// object is skipped, not silently ignored, so the walk can still finish and
+  /// nothing pretends the side was captured.
+  void skipStep() {
+    final id = state.stepPlan.currentId;
+    if (id == null) {
+      return;
+    }
+    AppHaptics.tap();
+    _skipped.add(id);
+    if (_focusedStep == id) {
+      _focusedStep = null;
+    }
+    _publishSteps();
+  }
+
+  /// Asks for a specific side next, because the user tapped it.
+  ///
+  /// This is the "click on it" half of the feature: doing the underside first
+  /// while the object is still in your hand, or the back before the sides, is
+  /// the user's call. Tapping the side already being asked for hands the walk
+  /// back to its own order.
+  void focusStep(CaptureStepId id) {
+    AppHaptics.tap();
+    _focusedStep = _focusedStep == id ? null : id;
+    _publishSteps();
+  }
+
+  /// Starts the second pass for the underside, after the object is turned.
+  ///
+  /// Apple's own two-pass flow: shoot one side, pause, turn the object over so
+  /// its bottom faces the user, then resume — the second pass's frames land in
+  /// the same directory, so reconstruction stitches one model with a real
+  /// bottom. From then on the underside counts as captured by the flip itself
+  /// (see [CaptureStepPlan]), because after a flip the underside is no longer
+  /// "down" in the phone's gravity-aligned frame.
+  Future<void> beginUndersidePass() async {
+    final id = _scanId;
+    if (id == null) {
+      return;
+    }
+    AppHaptics.tap();
+    state = state.copyWith(
+      isUndersidePass: true,
+      flipKeptCount: _directions.length,
+    );
+    try {
+      await _bridge.beginPassAfterFlip(id);
+    } on FormaError catch (e) {
+      // Honest rollback: the session is not going to restart a pass, so the
+      // UI must stop claiming the underside is being handled.
+      debugPrint('[forma] flip pass refused: ${e.debugMessage}');
+      AppHaptics.error();
+      if (!_disposed) {
+        state = state.copyWith(
+          isUndersidePass: false,
+          clearFlipKeptCount: true,
+          error: e.userMessage,
+        );
+      }
+    }
+  }
+
+  /// Pushes the walk's own bookkeeping into the UI state.
+  void _publishSteps() {
+    state = state.copyWith(
+      skippedSteps: Set<CaptureStepId>.unmodifiable(_skipped),
+      focusedStep: _focusedStep,
+      clearFocusedStep: _focusedStep == null,
+    );
+  }
+
   /// Opens or closes the point-cloud coverage review.
   ///
   /// A failure here is deliberately *not* surfaced as a screen error: the
@@ -498,6 +669,8 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
         isCapturePending: false,
         isReviewingModel: false,
         isShowingCoverage: false,
+        canCapture: false,
+        isFrameRequestPending: false,
       );
       _ensureReconstruction();
       return;
@@ -659,6 +832,8 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     // preference, not scan state (user request 2026-09-20).
     final profile = state.profile;
     _directions.clear();
+    _skipped.clear();
+    _focusedStep = null;
     state = CaptureUiState(isSessionStarting: true, profile: profile);
     final generation = ++_sessionStartGeneration;
     try {

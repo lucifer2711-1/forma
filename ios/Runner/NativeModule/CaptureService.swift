@@ -34,6 +34,10 @@ final class CaptureService {
   private var lastShotsTaken = -1
   private var lastPassComplete = false
 
+  /// Whether a manual frame could be taken at the last poll, so the shutter's
+  /// enabled state is only sent when it actually changed.
+  private var lastCanCapture = false
+
   /// How hard each scan is allowed to work, keyed by scan id.
   ///
   /// Per scan rather than one global: a build can still be running after the
@@ -104,6 +108,16 @@ final class CaptureService {
     await setScanProfile(name)
   }
 
+  /// Captures one frame at the current position, on the main actor.
+  nonisolated func requestImageCaptureAsync(scanId: String) async throws {
+    try await requestImageCapture(scanId: scanId)
+  }
+
+  /// Starts a new pass after a flip, on the main actor.
+  nonisolated func beginPassAfterFlipAsync(scanId: String) async throws {
+    try await beginPassAfterFlip(scanId: scanId)
+  }
+
   // MARK: Scan profile
 
   /// Sets how hard the active scan may work.
@@ -133,6 +147,95 @@ final class CaptureService {
   /// The profile a scan is running (or finished) with.
   func profile(scanId: String) -> ScanProfile {
     profiles[scanId] ?? pendingProfile
+  }
+
+  // MARK: Manual capture — the guided sides
+
+  /// Captures one frame where the phone is aimed right now.
+  ///
+  /// This is what turns the guided side-by-side walk into a tap instead of a
+  /// performance: the app asks for a side, the user aims at it and presses the
+  /// button. Apple's own API, and the same image set the auto-capture writes
+  /// to — the tap adds a frame rather than replacing the sequence.
+  ///
+  /// Guarded on the real state because the request is silently ignored in any
+  /// other one, and a tap that vanishes is worse than a tap that is refused.
+  func requestImageCapture(scanId: String) throws {
+    guard let session, scanId == self.scanId else {
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1004,
+        message: "No active capture session for scan \(scanId)"
+      )
+    }
+    guard Self.phaseName(session.state) == "capturing" else {
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1006,
+        message: "Capture is not running yet — try again in a moment"
+      )
+    }
+    guard session.canRequestImageCapture else {
+      // The session is the authority on whether a frame can be taken right
+      // now (it needs a locked bounding box and stable tracking). Refusing
+      // here is what lets the UI grey the button instead of lying about it.
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1011,
+        message: "Hold steady — the session is not ready for a frame yet"
+      )
+    }
+    session.requestImageCapture()
+  }
+
+  /// Starts a fresh pass after the object has been flipped over.
+  ///
+  /// The underside of an object on a table cannot be walked to, and Apple's
+  /// answer is to shoot the top-facing side, pause, have the user turn the
+  /// object over, and call this. It returns the session to `.ready` for a new
+  /// bounding box, and **the new frames land in the same output directory**, so
+  /// reconstruction stitches the two passes into one model with a real bottom
+  /// (Apple: "the reconstruction process will stitch these multiple captures
+  /// together automatically").
+  func beginPassAfterFlip(scanId: String) throws {
+    guard let session, scanId == self.scanId else {
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1004,
+        message: "No active capture session for scan \(scanId)"
+      )
+    }
+    guard Self.phaseName(session.state) != "completed" else {
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1002,
+        message: "The capture has already finished"
+      )
+    }
+    CameraDebugLogger.capture.info(
+      "starting a new scan pass after flip (scan \(scanId, privacy: .public))"
+    )
+    // iOS 17.0+, like the rest of the session API — unlike
+    // `isAutoCaptureEnabled` and `shouldPlayHaptics`, which are 18.0+, this
+    // needs no availability guard.
+    session.beginNewScanPassAfterFlip()
+    // A flip restarts the pass, so the frame budget's latch has to clear —
+    // otherwise a scan that finished its first pass could never end its
+    // second one.
+    didReachShotBudget = false
+  }
+
+  /// Starts a new pass on the same side (a second lap for more coverage).
+  func beginNewPass(scanId: String) throws {
+    guard let session, scanId == self.scanId else {
+      throw FormaNativeError(
+        domain: .capture,
+        code: 1004,
+        message: "No active capture session for scan \(scanId)"
+      )
+    }
+    session.beginNewScanPass()
+    didReachShotBudget = false
   }
 
   // MARK: Torch
@@ -241,6 +344,7 @@ final class CaptureService {
     lastShotsTaken = -1
     lastPassComplete = false
     lastLiveDirectionAt = nil
+    lastCanCapture = false
     didReachShotBudget = false
     capturingStartedAt = nil
     // Direction tracking starts with the session: the coverage globe is
@@ -369,6 +473,7 @@ final class CaptureService {
       lastShotsTaken = -1
       lastPassComplete = false
       lastLiveDirectionAt = nil
+      lastCanCapture = false
       didReachShotBudget = false
       capturingStartedAt = nil
       directions.stop()
@@ -464,14 +569,23 @@ final class CaptureService {
     // that would paint a covered side before the user has aimed at anything.
     let isNewShot = lastShotsTaken >= 0 && shots > lastShotsTaken
     let profile = profiles[scanId ?? ""] ?? pendingProfile
-    if shots != lastShotsTaken || passComplete != lastPassComplete {
+    // The session is the only thing that knows whether a frame can be taken
+    // right now, so the shutter's enabled state is read from it rather than
+    // guessed from the phase — a tap that gets silently dropped is worse than
+    // one that is visibly unavailable.
+    let canCapture = session.canRequestImageCapture
+    if shots != lastShotsTaken || passComplete != lastPassComplete
+      || canCapture != lastCanCapture
+    {
       lastShotsTaken = shots
       lastPassComplete = passComplete
+      lastCanCapture = canCapture
       emitProgress(
         shots: shots,
         passComplete: passComplete,
         profile: profile,
-        budgetReached: didReachShotBudget
+        budgetReached: didReachShotBudget,
+        canCapture: canCapture
       )
     }
     // The frame budget is what bounds how long a capture can run.
@@ -496,7 +610,8 @@ final class CaptureService {
         shots: shots,
         passComplete: passComplete,
         profile: profile,
-        budgetReached: true
+        budgetReached: true,
+        canCapture: false
       )
       session.finish()
     }
@@ -512,14 +627,16 @@ final class CaptureService {
     shots: Int,
     passComplete: Bool,
     profile: ScanProfile,
-    budgetReached: Bool
+    budgetReached: Bool,
+    canCapture: Bool
   ) {
     events.emitCaptureProgress(
       shots: shots,
       passComplete: passComplete,
       targetShots: profile.targetShots,
       maxShots: profile.maxShots,
-      budgetReached: budgetReached
+      budgetReached: budgetReached,
+      canCapture: canCapture
     )
   }
 

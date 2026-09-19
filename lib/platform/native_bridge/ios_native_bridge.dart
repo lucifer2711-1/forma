@@ -15,7 +15,8 @@ import 'package:forma/platform/native_bridge/native_bridge.dart';
 ///
 /// Event types: `phase` (CapturePhase name), `feedback` (CaptureFeedbackType
 /// name), `capture_progress` ({shots, passComplete, targetShots, maxShots,
-/// budgetReached}), `scan_direction` ({x, y, z, kept}), `model_zoom`
+/// budgetReached, canCapture}), `scan_direction` ({x, y, z, kept}),
+/// `model_zoom`
 /// (double), `reconstruction_progress` (double), `reconstruction_stage`
 /// ({stage, remainingSeconds?}), `reconstruction_complete` (model file path),
 /// `error` ({code, message}).
@@ -79,6 +80,9 @@ class IosNativeBridge implements NativeBridge {
             budgetReached:
                 (payload is Map ? payload['budgetReached'] : null) as bool? ??
                     false,
+            canCapture: (payload is Map ? payload['canCapture'] : null)
+                    as bool? ??
+                false,
           ),
         );
       case 'scan_direction':
@@ -276,6 +280,14 @@ class IosNativeBridge implements NativeBridge {
   @override
   Future<void> setScanProfile(ScanProfile profile) =>
       _invoke<void>('setScanProfile', {'profile': profile.name});
+
+  @override
+  Future<void> requestImageCapture(String scanId) =>
+      _invoke<void>('requestImageCapture', {'scanId': scanId});
+
+  @override
+  Future<void> beginPassAfterFlip(String scanId) =>
+      _invoke<void>('beginPassAfterFlip', {'scanId': scanId});
 
   @override
   Future<void> deleteScan(String scanId) =>

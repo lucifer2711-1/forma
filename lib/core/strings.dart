@@ -172,6 +172,57 @@ abstract final class Strings {
   static const undersideOptionalHint =
       'You have every side. The underside is optional — build it now.';
 
+  // The guided side-by-side walk: one named side at a time.
+
+  static const captureStepFront = 'Front';
+  static const captureStepRight = 'Right';
+  static const captureStepBack = 'Back';
+  static const captureStepLeft = 'Left';
+  static const captureStepTop = 'Top';
+  static const captureStepUnderside = 'Underside';
+
+  /// Before any frame is kept there is no way to name a side — "right" is
+  /// meaningless until the app knows which way the user's front is.
+  static const guidedStartHint =
+      'Point at the side of the object facing you and tap the shutter.';
+
+  /// Each side's instruction says which way to *move*, not which part of the
+  /// object it is: nobody can tell an anonymous object's right from its left,
+  /// but everybody knows which way their own right is.
+  static const guidedFrontHint =
+      'Front side — face the object and tap the shutter.';
+  static const guidedRightHint =
+      'Right side — step to your right and tap the shutter.';
+  static const guidedBackHint =
+      'Back side — keep going right, all the way around.';
+  static const guidedLeftHint =
+      'Left side — come back around to your left and tap.';
+  static const guidedTopHint =
+      'Top — aim down at the object from above, then tap.';
+  static const guidedUndersideHint =
+      'Underside — turn the object over so its bottom faces you.';
+
+  /// The deliberate second pass for the side nobody can walk to.
+  static const flipAndScan = 'Flip and scan';
+
+  /// The capture CTA during the flipped second pass — same button, named for
+  /// what it is about to do.
+  static const scanUnderside = 'Scan the underside';
+  static const skipSide = 'Skip this side';
+
+  /// Shutter. Reusing "shutter" in the instruction keeps them consistent.
+  static const shutterLabel = 'Take this photo';
+
+  /// The walk is over and nothing was skipped.
+  static const guidedCompleteHint =
+      'All six sides captured — build your model.';
+
+  /// Progress through the walk, said the way a step counter would.
+  static String stepOfTotal(int step, int total) => 'Side $step of $total';
+
+  /// Accessibility label for a side chip in the walk.
+  static String sideChipLabel(String side) => '$side side';
+
   // Scan speed: how long a scan is allowed to take.
 
   /// Heading above the speed picker on the capture screen.

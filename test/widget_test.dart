@@ -123,9 +123,10 @@ void main() {
     expect(torchArgs, {'enabled': false});
     expect(find.byIcon(Icons.flashlight_off_outlined), findsOneWidget);
 
-    // While capturing, the guidance states the coverage loop and the pointer
-    // moves to step 2.
-    expect(find.text(Strings.capturingHint), findsOneWidget);
+    // While capturing, the very first thing the guidance says is how to start
+    // the guided walk — there is no side to name until a frame is kept, so
+    // asking for the first one is the only useful instruction.
+    expect(find.text(Strings.guidedStartHint), findsOneWidget);
     expect(find.bySemanticsLabel(Strings.captureStepLabel(2)), findsOneWidget);
 
     // Low light is reported instead of silently ignored — the session sends
@@ -217,9 +218,22 @@ void main() {
     await tester.tap(find.text(Strings.coveragePillLabel));
     await tester.pump();
     expect(find.text(Strings.coverageTitle), findsOneWidget);
-    expect(find.text(Strings.coverageBandTop), findsOneWidget);
-    expect(find.text(Strings.coverageBandSides), findsOneWidget);
-    expect(find.text(Strings.coverageBandBottom), findsOneWidget);
+    // Scoped to the panel: the guided walk behind it names the same sides with
+    // the same words on purpose (they are the same six sides), so an unscoped
+    // finder would match both.
+    for (final band in [
+      Strings.coverageBandTop,
+      Strings.coverageBandSides,
+      Strings.coverageBandBottom,
+    ]) {
+      expect(
+        find.descendant(
+          of: find.byType(CoveragePanel),
+          matching: find.text(band),
+        ),
+        findsOneWidget,
+      );
+    }
     expect(find.textContaining('of the object captured'), findsOneWidget);
     expect(find.byType(CoverageGlobe), findsOneWidget);
     // The sides still missing are named here, so the user knows where to walk.

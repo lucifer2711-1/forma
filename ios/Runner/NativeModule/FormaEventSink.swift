@@ -47,7 +47,8 @@ final class FormaEventSink: NSObject, FlutterStreamHandler {
     passComplete: Bool,
     targetShots: Int,
     maxShots: Int,
-    budgetReached: Bool
+    budgetReached: Bool,
+    canCapture: Bool
   ) {
     emit([
       "type": "capture_progress",
@@ -57,6 +58,10 @@ final class FormaEventSink: NSObject, FlutterStreamHandler {
         "targetShots": targetShots,
         "maxShots": maxShots,
         "budgetReached": budgetReached,
+        // Whether the session can take a manual frame right now. The guided
+        // shutter follows this instead of the phase, because the session is
+        // the only thing that knows.
+        "canCapture": canCapture,
       ],
     ])
   }

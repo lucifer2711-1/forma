@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/features/capture/coverage/capture_steps.dart';
 import 'package:forma/features/capture/coverage/coverage_map.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
 
@@ -161,12 +162,25 @@ void main() {
     }
     await pumpEventQueue();
 
-    // Everything reachable is captured; only the underside is left, and that
-    // is enough. Requiring it kept users circling a scan that was already
-    // complete, which is most of what made a small object take 20-25 minutes
-    // (user request 2026-09-20).
+    // Everything reachable is captured; only the underside is left. The band
+    // verdict no longer demands it, because an object resting on a table has
+    // no underside to walk to, and requiring it kept users circling a scan
+    // that was already complete (user request 2026-09-20).
     expect(vm.state.coverage.missingBands, [CoverageBand.bottom]);
     expect(vm.state.isOnlyUndersideMissing, isTrue);
+
+    // The guided walk still names it, though — the underside is a real side
+    // and the user has to be able to answer for it: shoot it from underneath,
+    // turn the object over, or skip it. Until they do, the scan is not done.
+    expect(vm.state.stepPlan.currentId, CaptureStepId.underside);
+    expect(vm.state.hasEnoughCoverage, isFalse);
+
+    // Saying "I cannot turn this over" is a valid answer, and it finishes the
+    // walk rather than trapping the user in a checklist.
+    vm
+      ..focusStep(CaptureStepId.underside)
+      ..skipStep();
+    expect(vm.state.stepPlan.isComplete, isTrue);
     expect(vm.state.hasEnoughCoverage, isTrue);
 
     // Covering the underside as well is still better, and still recognised.
@@ -690,6 +704,75 @@ void main() {
     await pumpEventQueue();
 
     expect(vm.state.profile, ScanProfile.detail);
+  });
+
+  test('the guided walk ticks sides and takes a real manual frame', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await emitFormaEvent({'type': 'phase', 'value': 'capturing'});
+    await pumpEventQueue();
+
+    // The shutter follows the session's own answer, not the phase: it is the
+    // only thing that knows whether a frame can actually be taken.
+    await emitFormaEvent({
+      'type': 'capture_progress',
+      'value': {'shots': 1, 'passComplete': false, 'canCapture': true},
+    });
+    await pumpEventQueue();
+    expect(vm.state.canCapture, isTrue);
+
+    // The first kept frame anchors the walk: the front is done and the right
+    // side is what it asks for next.
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 1.0, 'y': 0.0, 'z': 0.0, 'kept': true},
+    });
+    await pumpEventQueue();
+    expect(vm.state.stepPlan.isAnchored, isTrue);
+    expect(vm.state.stepPlan.currentId, CaptureStepId.right);
+
+    await vm.captureStep();
+    expect(calls, contains('requestImageCapture'));
+  });
+
+  test('a tapped side is asked for next, and the underside is a flip',
+      () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+    await vm.start();
+    await emitFormaEvent({'type': 'phase', 'value': 'capturing'});
+    await pumpEventQueue();
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 0.0, 'y': 1.0, 'z': 0.0, 'kept': true},
+    });
+    await pumpEventQueue();
+
+    vm.focusStep(CaptureStepId.underside);
+    expect(vm.state.stepPlan.currentId, CaptureStepId.underside);
+
+    // The underside is not walked to, it is turned over to: Apple's second
+    // pass, and the frames it keeps are what counts as the underside.
+    await vm.beginUndersidePass();
+    expect(calls, contains('beginPassAfterFlip'));
+    expect(vm.state.isUndersidePass, isTrue);
+    expect(vm.state.flipKeptCount, 1);
+
+    await emitFormaEvent({
+      'type': 'scan_direction',
+      'value': {'x': 0.0, 'y': -1.0, 'z': 0.0, 'kept': true},
+    });
+    await pumpEventQueue();
+    expect(vm.state.stepPlan.isCaptured(CaptureStepId.underside), isTrue);
+
+    // Skipping is always available, so the walk can never trap anyone in a
+    // checklist they cannot satisfy.
+    vm
+      ..focusStep(CaptureStepId.top)
+      ..skipStep();
+    expect(
+      vm.state.stepPlan.statusOf(CaptureStepId.top),
+      CaptureStepStatus.skipped,
+    );
   });
 
   test('capture progress drives the guidance and the pass milestone',

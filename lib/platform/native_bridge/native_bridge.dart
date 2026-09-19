@@ -78,6 +78,28 @@ abstract interface class NativeBridge {
   /// without a torch is not an error: the request is simply a no-op.
   Future<void> setTorch({required bool enabled});
 
+  /// Captures one frame where the phone is aimed right now.
+  ///
+  /// This is what makes the guided side-by-side walk a tap: the app asks for
+  /// a named side, the user aims at it and presses the shutter. Apple's own
+  /// `requestImageCapture()`, and the frame lands in the same image set the
+  /// automatic capture writes to — so a deliberate tap adds coverage rather
+  /// than replacing it.
+  ///
+  /// Throws when the session is not capturing or is not ready for a frame
+  /// (native code 1006/1011); the UI mirrors readiness through
+  /// [CaptureProgress.canCapture] so the tap is never unknowingly dropped.
+  Future<void> requestImageCapture(String scanId);
+
+  /// Starts a new capture pass after the object has been flipped over.
+  ///
+  /// The underside of an object resting on a surface cannot be walked to, and
+  /// this is Apple's answer: shoot the side facing up, pause, turn the object
+  /// over, then call this. The frames land in the same directory, so
+  /// reconstruction stitches both passes into one model with a real bottom
+  /// (`ObjectCaptureSession.beginNewScanPassAfterFlip()`).
+  Future<void> beginPassAfterFlip(String scanId);
+
   /// Sets how hard the active scan is allowed to work.
   ///
   /// Takes effect immediately: the profile decides the frame budget the
