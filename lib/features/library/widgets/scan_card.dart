@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'package:forma/core/models/scan.dart';
+import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
@@ -16,13 +17,20 @@ import 'package:forma/design_system/tokens/app_typography.dart';
 /// I/O on the UI thread.
 class ScanCard extends StatefulWidget {
   /// Creates a card for [scan].
-  const ScanCard({required this.scan, this.onTap, super.key});
+  const ScanCard({required this.scan, this.onTap, this.onDelete, super.key});
 
   /// The scan to render.
   final Scan scan;
 
   /// Opens the scan (its 360° model viewer).
   final VoidCallback? onTap;
+
+  /// Deletes the scan; null hides the affordance.
+  ///
+  /// A visible button as well as a long press: a destructive action that can
+  /// only be found by guessing is a destructive action users cannot reach
+  /// (user request 2026-09-18: delete the models on the dashboard).
+  final VoidCallback? onDelete;
 
   @override
   State<ScanCard> createState() => _ScanCardState();
@@ -40,6 +48,7 @@ class _ScanCardState extends State<ScanCard> {
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onTap,
+          onLongPress: widget.onDelete,
           borderRadius: BorderRadius.circular(AppRadii.card),
           child: _buildTile(colors, path),
         ),
@@ -57,6 +66,15 @@ class _ScanCardState extends State<ScanCard> {
             _ThumbnailImage(path: path)
           else
             _PlaceholderArt(colors: colors),
+          if (widget.onDelete != null)
+            Positioned(
+              top: AppSpacing.sm,
+              right: AppSpacing.sm,
+              child: _DeleteButton(
+                label: Strings.deleteScanLabel(widget.scan.name),
+                onPressed: widget.onDelete!,
+              ),
+            ),
           Positioned(
             left: 0,
             right: 0,
@@ -91,6 +109,44 @@ class _ScanCardState extends State<ScanCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Small translucent delete button, overlaid on the card's thumbnail.
+///
+/// Deliberately quiet — it is a secondary action on a tile whose job is to be
+/// opened — but always present, so removing a model never depends on knowing
+/// a hidden gesture.
+class _DeleteButton extends StatelessWidget {
+  const _DeleteButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = FormaColors.of(context);
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: colors.bgElevated.withValues(alpha: 0.72),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Icon(
+              Icons.delete_outline,
+              size: 18,
+              color: colors.textPrimary,
+            ),
+          ),
+        ),
       ),
     );
   }

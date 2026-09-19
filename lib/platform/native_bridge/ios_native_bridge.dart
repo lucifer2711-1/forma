@@ -244,6 +244,14 @@ class IosNativeBridge implements NativeBridge {
       _invoke<void>('setCaptureReviewMode', {'enabled': enabled});
 
   @override
+  Future<void> setTorch({required bool enabled}) =>
+      _invoke<void>('setTorch', {'enabled': enabled});
+
+  @override
+  Future<void> deleteScan(String scanId) =>
+      _invoke<void>('deleteScan', {'scanId': scanId});
+
+  @override
   Stream<double> get modelZoomUpdates {
     _ensureSubscribed();
     return _modelZoomController.stream;

@@ -76,8 +76,28 @@ abstract final class Strings {
       'The camera did not start. Close and reopen the app, then try again.';
   static const trackingInitializing =
       'Point at a well-lit, textured surface — the camera is warming up.';
+  /// Accessibility label for the torch toggle; its state is exposed
+  /// separately via `Semantics(toggled:)`.
   static const torchLabel = 'Flashlight';
-  static const torchComingSoon = 'Torch arrives in the next build';
+
+  // Library management: delete + navigation.
+
+  static const back = 'Back';
+  static const deleteScan = 'Delete';
+  static const deleteScanTitle = 'Delete this scan?';
+
+  /// Names the scan in the confirmation, so a mis-tap on the wrong card is
+  /// caught before anything is destroyed.
+  static String deleteScanBody(String name) =>
+      '“$name” and its 3D model will be removed from this iPhone. '
+      'This cannot be undone.';
+
+  /// Accessibility label for the delete button on a card.
+  static String deleteScanLabel(String name) => 'Delete $name';
+  static const scanDeleted = 'Scan deleted';
+  static const deleteFailed =
+      'Could not delete this scan. Please try again.';
+  static const keep = 'Keep';
 
   // Capture coverage guidance.
 

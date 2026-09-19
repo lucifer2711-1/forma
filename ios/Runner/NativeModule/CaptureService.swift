@@ -76,6 +76,62 @@ final class CaptureService {
     await cancel(scanId: scanId)
   }
 
+  /// Turns the rear torch on/off on the main actor.
+  nonisolated func setTorchAsync(enabled: Bool) async {
+    await setTorch(enabled: enabled)
+  }
+
+  // MARK: Torch
+
+  /// Whether the rear torch is currently lit.
+  private var isTorchOn = false
+
+  /// The rear wide-angle camera, used only to drive the torch.
+  ///
+  /// `ObjectCaptureSession` owns the camera but exposes no torch control, so
+  /// the torch is driven directly on the same device the session captures
+  /// from (master spec §4.2: `setTorch`).
+  private var torchDevice: AVCaptureDevice? {
+    AVCaptureDevice.default(
+      .builtInWideAngleCamera,
+      for: .video,
+      position: .back
+    )
+  }
+
+  /// Turns the rear torch on or off; a no-op on devices without one.
+  ///
+  /// Best-effort by design: the torch is a convenience for low light, never a
+  /// reason a scan should fail — so a device that refuses the configuration is
+  /// logged and swallowed instead of surfacing as an error.
+  func setTorch(enabled: Bool) {
+    guard let device = torchDevice, device.hasTorch else {
+      CameraDebugLogger.capture.info("torch unavailable on this device")
+      isTorchOn = false
+      return
+    }
+    do {
+      try device.lockForConfiguration()
+      device.torchMode = enabled ? .on : .off
+      device.unlockForConfiguration()
+      isTorchOn = enabled
+      CameraDebugLogger.capture.info(
+        "torch \(enabled ? "on" : "off", privacy: .public)"
+      )
+    } catch {
+      CameraDebugLogger.capture.error("torch toggle failed: \(error)")
+    }
+  }
+
+  /// Switches the torch off when the live feed is over.
+  ///
+  /// Nothing else turns it off: iOS leaves a torch burning after the session
+  /// ends, which would drain the battery with a black screen on it.
+  private func extinguishTorch() {
+    guard isTorchOn else { return }
+    setTorch(enabled: false)
+  }
+
   // MARK: Session lifecycle
 
   /// Starts a capture session for a new scan; returns the scan id.
@@ -133,6 +189,9 @@ final class CaptureService {
     // Direction tracking starts with the session: the coverage globe is
     // built from where the user stood for each frame Object Capture kept.
     directions.start()
+    // A fresh scan starts with the torch off, whatever the last session left
+    // behind, so the torch button's state always matches the real device.
+    setTorch(enabled: false)
 
     // Make the capture itself as effortless as the OS allows: automatic
     // capture (no per-frame tapping) plus the session's own haptics so the
@@ -238,6 +297,9 @@ final class CaptureService {
       }
     }
     if scanId == self.scanId {
+      // The feed is going away, so the torch must too — otherwise it keeps
+      // burning after the screen is gone.
+      extinguishTorch()
       // Blank every preview BEFORE releasing the session, so no installed
       // `ObjectCaptureView` is ever left holding a session this service has
       // dropped (RealityKit draws "Cannot make a view for a deinitialized
@@ -417,6 +479,7 @@ final class CaptureService {
       // session's capture model down, or the preview keeps trying to draw
       // a finished session (device-test finding 2026-09-18: black feed
       // with "Cannot make a view for a deinitialized ObjectCaptureSession").
+      extinguishTorch()
       viewport?.unbindPreviews()
       directions.stop()
       if let scanId {
@@ -426,6 +489,7 @@ final class CaptureService {
     case .initializing:
       break
     case .failed(let error):
+      extinguishTorch()
       viewport?.unbindPreviews()
       directions.stop()
       if let scanId {

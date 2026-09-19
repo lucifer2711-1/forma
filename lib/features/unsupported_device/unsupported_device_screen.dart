@@ -43,6 +43,12 @@ class _UnsupportedDeviceScreenState extends State<UnsupportedDeviceScreen>
     final colors = FormaColors.of(context);
     return Scaffold(
       appBar: AppBar(
+        // Explicit, not implied: an explainer the user cannot leave is a dead
+        // end, and the whole point of this screen is to send them back to the
+        // library without starting a scan (user request 2026-09-18).
+        leading: BackButton(
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
         title: const Text(Strings.appName),
         backgroundColor: Colors.transparent,
       ),

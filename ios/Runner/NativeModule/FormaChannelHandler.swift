@@ -151,6 +151,34 @@ final class FormaChannelHandler: NSObject, FlutterPlugin {
         await self.viewport.setReviewMode(enabled)
         self.respond(result, nil)
       }
+    case "setTorch":
+      Task { [weak self] in
+        guard let self else { return }
+        let enabled =
+          (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+        await self.captureService.setTorchAsync(enabled: enabled)
+        self.respond(result, nil)
+      }
+    case "deleteScan":
+      guard
+        let scanId = (call.arguments as? [String: Any])?["scanId"] as? String
+      else {
+        result(flutterError(
+          FormaNativeError(
+            domain: .store,
+            code: 4001,
+            message: "Missing scanId"
+          ),
+          domain: .store
+        ))
+        return
+      }
+      // Files first, then the row is removed by the caller: a crash in
+      // between leaves an orphaned row pointing at a missing model, which
+      // the library already reports honestly — the reverse order would leave
+      // hundreds of megabytes on disk with nothing referencing them.
+      FormaStorage.deleteScanFiles(scanId: scanId)
+      result(nil)
     case "exportModel":
       exportModel(call, result)
     default:

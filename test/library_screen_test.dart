@@ -11,6 +11,7 @@ import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/theme.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
 import 'package:forma/features/library/library_screen.dart';
+import 'package:forma/features/library/widgets/scan_card.dart';
 
 import 'native_channel_mock.dart';
 import 'scan_repository_memory.dart';
@@ -124,7 +125,9 @@ void main() {
     );
     await _pump(tester, repo: repo, supported: true);
 
-    await tester.tap(find.text('Mug'));
+    // Tapped by card, not by its name label: the label sits low on a tall
+    // tile and the bottom CTA overlays that strip on a squat test viewport.
+    await tester.tap(find.byType(ScanCard));
     await tester.pumpAndSettle();
 
     // The viewer opens. This host cannot render RealityKit, so it says so
@@ -170,7 +173,7 @@ void main() {
     );
     await _pump(tester, repo: repo, supported: true);
 
-    await tester.tap(find.text('Mug'));
+    await tester.tap(find.byType(ScanCard));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -204,13 +207,14 @@ void main() {
     await repo.save(_scan('a', 'Mug'));
     await _pump(tester, repo: repo, supported: true);
 
-    await tester.tap(find.text('Mug'));
+    await tester.tap(find.byType(ScanCard));
     await tester.pump();
 
     expect(find.text(Strings.scanStillBuilding), findsOneWidget);
   });
 
-  testWidgets('a scan whose model file is gone says so', (tester) async {
+  testWidgets('a scan whose model file is gone says so — and offers a way back',
+      (tester) async {
     final repo = MemoryScanRepository();
     await repo.save(
       Scan(
@@ -223,9 +227,74 @@ void main() {
     );
     await _pump(tester, repo: repo, supported: true);
 
-    await tester.tap(find.text('Mug'));
+    await tester.tap(find.byType(ScanCard));
     await tester.pumpAndSettle();
 
     expect(find.text(Strings.modelMissingSubtitle), findsOneWidget);
+
+    // The message screen replaces the viewer's chrome, so it carries its own
+    // back button — otherwise a missing model is a screen with no exit
+    // (user request 2026-09-18).
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.libraryTitle), findsOneWidget);
+  });
+
+  testWidgets('the scan CTA is a labelled button on the dashboard',
+      (tester) async {
+    final repo = MemoryScanRepository();
+    await repo.save(_scan('a', 'Mug'));
+    await _pump(tester, repo: repo, supported: true);
+
+    // A named, bottom-pinned button replaced the floating icon, so starting a
+    // scan is discoverable instead of a symbol to decode.
+    expect(find.text(Strings.startScan), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
+  });
+
+  testWidgets('deleting a scan asks first, then removes it and its files',
+      (tester) async {
+    // The native channel is mocked to resolve: on a real device the delete
+    // handler is present, and an unanswered platform call never completes
+    // inside the test engine.
+    final calls = <String>[];
+    Map<Object?, Object?>? deleteArgs;
+    mockFormaEventChannel();
+    mockFormaMethods((call) async {
+      calls.add(call.method);
+      if (call.method == 'deleteScan') {
+        deleteArgs = call.arguments as Map<Object?, Object?>?;
+      }
+      return null;
+    });
+    addTearDown(clearFormaChannelMocks);
+
+    final repo = MemoryScanRepository();
+    await repo.save(_scan('a', 'Mug'));
+    await _pump(tester, repo: repo, supported: true);
+
+    // Nothing is destroyed until the user confirms: a scan costs minutes to
+    // make and deleting it cannot be undone.
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+    expect(find.text(Strings.deleteScanTitle), findsOneWidget);
+
+    await tester.tap(find.text(Strings.keep));
+    await tester.pumpAndSettle();
+    expect(find.text('Mug'), findsOneWidget);
+    expect(await repo.byId('a'), isNotNull);
+    expect(calls, isNot(contains('deleteScan')));
+
+    await tester.tap(find.byIcon(Icons.delete_outline));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(Strings.deleteScan));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mug'), findsNothing);
+    expect(await repo.byId('a'), isNull);
+    expect(find.text(Strings.scanDeleted), findsOneWidget);
+    // The model on disk is removed too, not just the row: a scan is hundreds
+    // of megabytes, so "delete" has to reclaim the space.
+    expect(deleteArgs, {'scanId': 'a'});
   });
 }

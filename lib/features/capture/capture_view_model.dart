@@ -54,6 +54,7 @@ class CaptureUiState {
     this.shots = 0,
     this.isScanPassComplete = false,
     this.isReviewingModel = false,
+    this.isTorchOn = false,
     this.directions = const [],
     this.currentDirection,
     this.isShowingCoverage = false,
@@ -108,6 +109,9 @@ class CaptureUiState {
   /// rather than the camera feed.
   final bool isReviewingModel;
 
+  /// The rear torch is lit to help a dim scan.
+  final bool isTorchOn;
+
   /// Directions a frame was kept for — where the object has been scanned from.
   final List<ScanDirection> directions;
 
@@ -144,6 +148,7 @@ class CaptureUiState {
     int? shots,
     bool? isScanPassComplete,
     bool? isReviewingModel,
+    bool? isTorchOn,
     List<ScanDirection>? directions,
     ScanDirection? currentDirection,
     bool? isShowingCoverage,
@@ -166,6 +171,7 @@ class CaptureUiState {
       shots: shots ?? this.shots,
       isScanPassComplete: isScanPassComplete ?? this.isScanPassComplete,
       isReviewingModel: isReviewingModel ?? this.isReviewingModel,
+      isTorchOn: isTorchOn ?? this.isTorchOn,
       directions: directions ?? this.directions,
       currentDirection: currentDirection ?? this.currentDirection,
       isShowingCoverage: isShowingCoverage ?? this.isShowingCoverage,
@@ -290,6 +296,27 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
   void hideCoverage() {
     AppHaptics.tap();
     state = state.copyWith(isShowingCoverage: false);
+  }
+
+  /// Lights or extinguishes the capture screen's torch.
+  ///
+  /// The UI follows the tap immediately so the button always feels alive,
+  /// and rolls back if native refuses — an icon that stays lit over a dark
+  /// scene would be a lie about the light (rules.md §7). The torch is a
+  /// genuine convenience here: Object Capture's own feedback asks the user to
+  /// find more light, and this is the one control that can supply it.
+  Future<void> toggleTorch() async {
+    final next = !state.isTorchOn;
+    AppHaptics.tap();
+    state = state.copyWith(isTorchOn: next);
+    try {
+      await _bridge.setTorch(enabled: next);
+    } on FormaError catch (e) {
+      debugPrint('[forma] torch unavailable: ${e.debugMessage}');
+      if (!_disposed) {
+        state = state.copyWith(isTorchOn: !next);
+      }
+    }
   }
 
   /// Opens or closes the point-cloud coverage review.

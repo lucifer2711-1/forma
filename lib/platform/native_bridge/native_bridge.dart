@@ -71,6 +71,21 @@ abstract interface class NativeBridge {
   /// still to scan.
   Future<void> setCaptureReviewMode({required bool enabled});
 
+  /// Turns the capture screen's rear torch on ([enabled] true) or off.
+  ///
+  /// Driven directly on the rear camera, since `ObjectCaptureSession` owns
+  /// the camera but exposes no torch control (master spec §4.2). A device
+  /// without a torch is not an error: the request is simply a no-op.
+  Future<void> setTorch({required bool enabled});
+
+  /// Deletes every file Forma wrote for [scanId] — its source images, the
+  /// reconstructed model, and any exports.
+  ///
+  /// The library row is removed separately by the repository, so a scan the
+  /// user deletes actually reclaims its disk space instead of only vanishing
+  /// from the dashboard.
+  Future<void> deleteScan(String scanId);
+
   /// Continuous capture phase updates.
   Stream<CapturePhase> get phaseUpdates;
 

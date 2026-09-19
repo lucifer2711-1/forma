@@ -78,6 +78,43 @@ void main() {
     expect(saved!.modelPath, '/Scans/scan-1/Model.usdz');
   });
 
+  test('the torch follows the tap and reaches native', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    await vm.start();
+    expect(vm.state.isTorchOn, isFalse);
+
+    await vm.toggleTorch();
+    expect(vm.state.isTorchOn, isTrue);
+    expect(calls, contains('setTorch'));
+
+    await vm.toggleTorch();
+    expect(vm.state.isTorchOn, isFalse);
+  });
+
+  test('a refused torch rolls the icon back instead of lying', () async {
+    mockFormaMethods((call) async {
+      if (call.method == 'startCapture') {
+        return 'scan-1';
+      }
+      if (call.method == 'setTorch') {
+        throw PlatformException(
+          code: 'CAPTURE',
+          message: 'no torch on this camera',
+          details: 1001,
+        );
+      }
+      return null;
+    });
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    await vm.start();
+    await vm.toggleTorch();
+
+    // A lit icon over a dark scene would claim light that is not there.
+    expect(vm.state.isTorchOn, isFalse);
+  });
+
   test('error event surfaces a safe message without technical detail',
       () async {
     final vm = container.read(captureViewModelProvider.notifier);

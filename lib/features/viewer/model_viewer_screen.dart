@@ -84,6 +84,12 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
   bool get _viewerSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
+  /// Leaves the viewer, back to whatever opened it.
+  void _pop() {
+    AppHaptics.tap();
+    Navigator.of(context).pop();
+  }
+
   Future<void> _resetView() => _run((bridge) => bridge.resetModelView());
 
   /// Zooms via the native viewer.
@@ -141,6 +147,23 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
               title: Strings.modelMissingTitle,
               subtitle: Strings.modelMissingSubtitle,
             ),
+          // A viewer that cannot show the model still has to let the user
+          // leave: the message screens replace the chrome, so each carries its
+          // own back button (user request 2026-09-18).
+          if (!(_hasModel && _viewerSupported))
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.xxl),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: _PillIconButton(
+                    icon: Icons.arrow_back,
+                    semanticLabel: Strings.back,
+                    onPressed: _pop,
+                  ),
+                ),
+              ),
+            ),
           if (_hasModel && _viewerSupported)
             SafeArea(
               child: Padding(
@@ -170,12 +193,9 @@ class _ModelViewerScreenState extends ConsumerState<ModelViewerScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _PillIconButton(
-            icon: Icons.close,
-            semanticLabel: Strings.close,
-            onPressed: () {
-              AppHaptics.tap();
-              Navigator.of(context).pop();
-            },
+            icon: Icons.arrow_back,
+            semanticLabel: Strings.back,
+            onPressed: _pop,
           ),
           Flexible(
             child: Text(

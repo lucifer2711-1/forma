@@ -36,4 +36,19 @@ enum FormaStorage {
       .appendingPathComponent(scanId, isDirectory: true)
       .appendingPathComponent("model.\(pathExtension)")
   }
+
+  /// Deletes everything Forma wrote for [scanId]: its source images, the
+  /// reconstructed model, and any exports.
+  ///
+  /// Deleting the library row alone left the model on disk forever — a scan
+  /// is hundreds of megabytes, so "delete" has to actually reclaim the space
+  /// (user request 2026-09-18: models could not be removed from the
+  /// dashboard). Missing directories are not an error: the caller is removing
+  /// a row it can see, and the files may already be gone.
+  static func deleteScanFiles(scanId: String) {
+    for root in [scansRoot, exportsRoot] {
+      let directory = root.appendingPathComponent(scanId, isDirectory: true)
+      try? FileManager.default.removeItem(at: directory)
+    }
+  }
 }

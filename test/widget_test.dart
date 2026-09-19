@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -16,10 +17,14 @@ void main() {
       (tester) async {    mockFormaEventChannel();
     final calls = <String>[];
     Map<Object?, Object?>? reviewArgs;
+    Map<Object?, Object?>? torchArgs;
     mockFormaMethods((call) async {
       calls.add(call.method);
       if (call.method == 'setCaptureReviewMode') {
         reviewArgs = call.arguments as Map<Object?, Object?>?;
+      }
+      if (call.method == 'setTorch') {
+        torchArgs = call.arguments as Map<Object?, Object?>?;
       }
       switch (call.method) {
         case 'isScanSupported':
@@ -82,6 +87,19 @@ void main() {
     await tester.pump();
     expect(find.text(Strings.finishCapture), findsOneWidget);
     expect(find.text(Strings.gettingReady), findsNothing);
+
+    // The torch is a real control, not a placeholder: the button reaches
+    // native and lights up, which is what makes it usable in a dim room
+    // (user request 2026-09-18: turn on the flash feature).
+    await tester.tap(find.bySemanticsLabel(Strings.torchLabel));
+    await tester.pump();
+    expect(torchArgs, {'enabled': true});
+    expect(find.byIcon(Icons.flashlight_on), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel(Strings.torchLabel));
+    await tester.pump();
+    expect(torchArgs, {'enabled': false});
+    expect(find.byIcon(Icons.flashlight_off_outlined), findsOneWidget);
 
     // While capturing, the guidance states the coverage loop and the pointer
     // moves to step 2.
@@ -195,6 +213,19 @@ void main() {
     expect(find.text(Strings.backToCamera), findsOneWidget);
     expect(calls, contains('setCaptureReviewMode'));
     expect(reviewArgs, {'enabled': true});
+
+    // A failed capture must not trap the user on a dead camera: the error
+    // layer replaces the live chrome, so it carries its own way back to the
+    // library (user request 2026-09-18).
+    await tester.runAsync(
+      () => emitFormaEvent({
+        'type': 'error',
+        'value': {'code': 1007, 'message': 'insufficientStorage'},
+      }),
+    );
+    await tester.pump();
+    expect(find.text(Strings.storageFull), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
 
     semantics.dispose();
     clearFormaChannelMocks();

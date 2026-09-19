@@ -124,13 +124,29 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
     final isError = state.error != null;
     if (isError) {
       // Opaque failure layer: blocks the camera and offers retry.
+      // It carries its own back button: this layer replaces the live chrome,
+      // and a failure screen whose only option is "Try again" traps the user
+      // on a camera that is refusing to work (user request 2026-09-18: be
+      // able to go back from every option).
       return SafeArea(
         child: ColoredBox(
           color:
               Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.xxl),
-            child: _buildError(state.error!),
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _PillIconButton(
+                    icon: Icons.arrow_back,
+                    semanticLabel: Strings.back,
+                    onPressed: _close,
+                  ),
+                ),
+                Expanded(child: Center(child: _buildError(state.error!))),
+              ],
+            ),
           ),
         ),
       );
@@ -228,19 +244,18 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         ),
         // Reconstruction takes over the whole screen; hide chrome then.
         if (!state.isReconstructing)
-          _PillIconButton(
-            icon: Icons.flashlight_off_outlined,
-            semanticLabel: Strings.torchLabel,
-            onPressed: () {
-              AppHaptics.tap();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(Strings.torchComingSoon),
-                  behavior: SnackBarBehavior.floating,
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
+          Semantics(
+            toggled: state.isTorchOn,
+            child: _PillIconButton(
+              icon: state.isTorchOn
+                  ? Icons.flashlight_on
+                  : Icons.flashlight_off_outlined,
+              semanticLabel: Strings.torchLabel,
+              isActive: state.isTorchOn,
+              onPressed: () => unawaited(
+                ref.read(captureViewModelProvider.notifier).toggleTorch(),
+              ),
+            ),
           ),
       ],
     );
@@ -527,11 +542,16 @@ class _PillIconButton extends StatelessWidget {
     required this.icon,
     required this.semanticLabel,
     required this.onPressed,
+    this.isActive = false,
   });
 
   final IconData icon;
   final String semanticLabel;
   final VoidCallback onPressed;
+
+  /// Renders the button as a lit toggle (the torch's on state) rather than a
+  /// neutral action, so "the light is on" is visible without reading an icon.
+  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -540,7 +560,9 @@ class _PillIconButton extends StatelessWidget {
       button: true,
       label: semanticLabel,
       child: Material(
-        color: colors.bgElevated.withValues(alpha: 0.72),
+        color: isActive
+            ? colors.accent
+            : colors.bgElevated.withValues(alpha: 0.72),
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -548,7 +570,11 @@ class _PillIconButton extends StatelessWidget {
           child: SizedBox(
             width: 44,
             height: 44,
-            child: Icon(icon, size: 22, color: colors.textPrimary),
+            child: Icon(
+              icon,
+              size: 22,
+              color: isActive ? Colors.white : colors.textPrimary,
+            ),
           ),
         ),
       ),
