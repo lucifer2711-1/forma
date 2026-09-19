@@ -675,19 +675,21 @@ void main() {
   test('the scan speed reaches native and survives a new session', () async {
     final vm = container.read(captureViewModelProvider.notifier);
 
-    expect(vm.state.profile, ScanProfile.balanced);
-
-    await vm.selectProfile(ScanProfile.quick);
+    // Quick is the default, because the product promise is that scanning
+    // anything takes a couple of minutes (user request 2026-09-20).
     expect(vm.state.profile, ScanProfile.quick);
+
+    await vm.selectProfile(ScanProfile.detail);
+    expect(vm.state.profile, ScanProfile.detail);
     expect(calls, contains('setScanProfile'));
 
     // Starting a session must not quietly drop the user's choice: the speed is
-    // a preference, not scan state (user request 2026-09-20).
+    // a preference, not scan state.
     await vm.start();
     await emitFormaEvent({'type': 'phase', 'value': 'detecting'});
     await pumpEventQueue();
 
-    expect(vm.state.profile, ScanProfile.quick);
+    expect(vm.state.profile, ScanProfile.detail);
   });
 
   test('capture progress drives the guidance and the pass milestone',

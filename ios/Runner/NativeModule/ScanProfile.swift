@@ -26,17 +26,24 @@ enum ScanProfile: String, CaseIterable {
   /// Pay for detail: texture-rich objects that reward a closer look.
   case detail
 
-  /// Resolves a wire value, falling back to `balanced`.
+  /// Resolves a wire value, falling back to [defaultProfile].
   ///
   /// Never throws: an unknown profile means Dart and Swift disagree about the
   /// vocabulary, and the right answer to that is a working scan at the
   /// default speed, not a refused capture.
   static func named(_ name: String?) -> ScanProfile {
     guard let name, let profile = ScanProfile(rawValue: name) else {
-      return .balanced
+      return defaultProfile
     }
     return profile
   }
+
+  /// The speed a scan gets when nobody has chosen one.
+  ///
+  /// `quick` on purpose: the product promise is that scanning anything takes
+  /// a couple of minutes, and a user who wants more detail can say so on the
+  /// capture screen before they start (user request 2026-09-20).
+  static let defaultProfile = ScanProfile.quick
 
   /// The frame count at which the scan is considered to have enough.
   ///

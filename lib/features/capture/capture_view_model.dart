@@ -43,7 +43,7 @@ const _maxDirections = 240;
 class CaptureUiState {
   CaptureUiState({
     this.phase,
-    this.profile = ScanProfile.balanced,
+    this.profile = ScanProfile.quick,
     this.feedback = CaptureFeedbackType.none,
     this.isReconstructing = false,
     this.reconstructionProgress = 0,

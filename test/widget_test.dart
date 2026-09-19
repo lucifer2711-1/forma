@@ -75,9 +75,11 @@ void main() {
     expect(find.text(Strings.profileQuickLabel), findsOneWidget);
     expect(find.text(Strings.profileBalancedLabel), findsOneWidget);
     expect(find.text(Strings.profileDetailLabel), findsOneWidget);
-    await tester.tap(find.text(Strings.profileQuickLabel));
+    // Quick is the default — the picker exists to raise the budget, not to
+    // make the user ask for the speed they were promised.
+    await tester.tap(find.text(Strings.profileDetailLabel));
     await tester.pump();
-    expect(profileArgs, {'profile': 'quick'});
+    expect(profileArgs, {'profile': 'detail'});
 
     // Once the session is live, the guidance names the current step — and the
     // middle of the screen stays free for Object Capture's own AR guidance.
@@ -106,7 +108,7 @@ void main() {
 
     // Frames are landing: the speed is no longer a choice to make, and the
     // bottom of the screen belongs to the shutter.
-    expect(find.text(Strings.profileQuickLabel), findsNothing);
+    expect(find.text(Strings.profileDetailLabel), findsNothing);
 
     // The torch is a real control, not a placeholder: the button reaches
     // native and lights up, which is what makes it usable in a dim room

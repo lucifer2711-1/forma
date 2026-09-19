@@ -43,7 +43,7 @@ final class CaptureService {
   private var profiles: [String: ScanProfile] = [:]
 
   /// The profile a session created before any explicit choice will use.
-  private var pendingProfile: ScanProfile = .balanced
+  private var pendingProfile: ScanProfile = ScanProfile.defaultProfile
 
   /// Set once a session has been told to stop at its frame budget, so the
   /// auto-finish happens exactly once per scan.
