@@ -46,6 +46,8 @@ class CaptureUiState {
     this.feedback = CaptureFeedbackType.none,
     this.isReconstructing = false,
     this.reconstructionProgress = 0,
+    this.reconstructionStage,
+    this.reconstructionSecondsRemaining,
     this.isCompleted = false,
     this.isCameraLive = false,
     this.isSessionStarting = false,
@@ -77,6 +79,15 @@ class CaptureUiState {
 
   /// Reconstruction progress 0..1.
   final double reconstructionProgress;
+
+  /// What RealityKit is doing now (Apple's own pipeline stage), or null
+  /// before it reports one.
+  final String? reconstructionStage;
+
+  /// Apple's estimate of the seconds left in the build, or null while it has
+  /// none. Never computed here: a guess presented as a countdown is worse than
+  /// no countdown.
+  final int? reconstructionSecondsRemaining;
 
   /// Model finished and saved; the screen should pop.
   final bool isCompleted;
@@ -135,11 +146,25 @@ class CaptureUiState {
   bool get isIdle =>
       phase == null && !isReconstructing && error == null && !isCameraLive;
 
+  /// Whether the scan has enough data to build a good model.
+  ///
+  /// Both signals are required on purpose. Apple's `userCompletedScanPass`
+  /// says the session was *shown* every side of a lap; the globe says those
+  /// sides were actually *kept*, including the top and the underside a lap
+  /// never covers. Trusting either one alone is how a scan gets finished with
+  /// a missing side — which is exactly what "the scan is not precise" looked
+  /// like (device-test findings 2026-09-18).
+  bool get hasEnoughCoverage =>
+      isScanPassComplete && coverage.hasData && coverage.missingBands.isEmpty;
+
   CaptureUiState copyWith({
     CapturePhase? phase,
     CaptureFeedbackType? feedback,
     bool? isReconstructing,
     double? reconstructionProgress,
+    String? reconstructionStage,
+    int? reconstructionSecondsRemaining,
+    bool clearReconstructionEstimate = false,
     bool? isCompleted,
     bool? isCameraLive,
     bool? isSessionStarting,
@@ -162,6 +187,12 @@ class CaptureUiState {
       isReconstructing: isReconstructing ?? this.isReconstructing,
       reconstructionProgress:
           reconstructionProgress ?? this.reconstructionProgress,
+      reconstructionStage:
+          reconstructionStage ?? this.reconstructionStage,
+      reconstructionSecondsRemaining: clearReconstructionEstimate
+          ? null
+          : (reconstructionSecondsRemaining ??
+              this.reconstructionSecondsRemaining),
       isCompleted: isCompleted ?? this.isCompleted,
       isCameraLive: isCameraLive ?? this.isCameraLive,
       isSessionStarting: isSessionStarting ?? this.isSessionStarting,
@@ -238,6 +269,7 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
           reconstructionProgress: value,
         );
       }))
+      ..add(_bridge.reconstructionStageUpdates.listen(_onReconstructionStage))
       ..add(_bridge.reconstructionCompleteUpdates.listen(_onComplete))
       ..add(_bridge.errorUpdates.listen((error) {
         // Keep the technical detail in logs only — the UI shows the safe
@@ -261,6 +293,18 @@ class CaptureViewModel extends Notifier<CaptureUiState> {
     state = state.copyWith(
       shots: progress.shots,
       isScanPassComplete: progress.passComplete,
+    );
+  }
+
+  /// Applies Apple's current stage and remaining-time estimate.
+  ///
+  /// The estimate is cleared when Apple stops providing one, so the panel
+  /// never keeps showing a countdown that has gone stale.
+  void _onReconstructionStage(ReconstructionStage update) {
+    state = state.copyWith(
+      reconstructionStage: update.stage,
+      reconstructionSecondsRemaining: update.remainingSeconds,
+      clearReconstructionEstimate: update.remainingSeconds == null,
     );
   }
 

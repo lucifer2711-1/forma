@@ -98,6 +98,13 @@ abstract interface class NativeBridge {
   /// Reconstruction progress from 0.0 to 1.0.
   Stream<double> get reconstructionProgressUpdates;
 
+  /// Reconstruction stage updates, with RealityKit's own estimate of the
+  /// seconds remaining.
+  ///
+  /// A bare percentage cannot answer "how long is this going to take?", which
+  /// is what makes a build feel endless. Apple's stage and ETA can.
+  Stream<ReconstructionStage> get reconstructionStageUpdates;
+
   /// Reconstruction completion; emits the model file path.
   Stream<String> get reconstructionCompleteUpdates;
 

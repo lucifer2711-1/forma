@@ -79,6 +79,20 @@ final class FormaEventSink: NSObject, FlutterStreamHandler {
     emit(["type": "reconstruction_progress", "value": value])
   }
 
+  /// The reconstruction stage RealityKit is in, plus its own estimate of the
+  /// seconds left.
+  ///
+  /// `remainingSeconds` is omitted while the estimate is unavailable (Apple
+  /// returns nil early in the build). Omitted, not zero: the UI shows the
+  /// stage alone rather than a countdown that would be invented.
+  func emitReconstructionStage(stage: String, remainingSeconds: Double?) {
+    var value: [String: Any] = ["stage": stage]
+    if let remainingSeconds {
+      value["remainingSeconds"] = remainingSeconds
+    }
+    emit(["type": "reconstruction_stage", "value": value])
+  }
+
   func emitComplete(_ path: String) {
     emit(["type": "reconstruction_complete", "value": path])
   }

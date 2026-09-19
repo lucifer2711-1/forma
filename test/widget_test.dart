@@ -6,6 +6,7 @@ import 'package:forma/app.dart';
 import 'package:forma/core/providers.dart';
 import 'package:forma/core/strings.dart';
 import 'package:forma/features/capture/widgets/coverage_globe.dart';
+import 'package:forma/features/capture/widgets/coverage_panel.dart';
 
 import 'native_channel_mock.dart';
 import 'scan_repository_memory.dart';
@@ -192,9 +193,14 @@ void main() {
     expect(find.text(Strings.coverageBandBottom), findsOneWidget);
     expect(find.textContaining('of the object captured'), findsOneWidget);
     expect(find.byType(CoverageGlobe), findsOneWidget);
-    // The sides still missing are named, so the user knows where to walk.
+    // The sides still missing are named here, so the user knows where to walk.
+    // Scoped to the panel because the live hint behind it names the same gap
+    // (both read from one shared helper, which is the point).
     expect(
-      find.textContaining(Strings.coverageNameBottom),
+      find.descendant(
+        of: find.byType(CoveragePanel),
+        matching: find.textContaining(Strings.coverageNameBottom),
+      ),
       findsOneWidget,
     );
 

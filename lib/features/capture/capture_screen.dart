@@ -11,6 +11,7 @@ import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
 import 'package:forma/design_system/tokens/motion.dart';
 import 'package:forma/features/capture/capture_view_model.dart';
+import 'package:forma/features/capture/coverage/coverage_guidance.dart';
 import 'package:forma/features/capture/widgets/camera_health_overlay.dart';
 import 'package:forma/features/capture/widgets/camera_preview.dart';
 import 'package:forma/features/capture/widgets/centered_message.dart';
@@ -263,7 +264,11 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
 
   Widget _buildStatusText(CaptureUiState state) {
     if (state.isReconstructing) {
-      return ReconstructionPanel(progress: state.reconstructionProgress);
+      return ReconstructionPanel(
+        progress: state.reconstructionProgress,
+        stage: state.reconstructionStage,
+        secondsRemaining: state.reconstructionSecondsRemaining,
+      );
     }
     // The "Starting camera…" scrim owns the center while the session
     // spins up, and the tracking-guidance layer owns it while ARKit
@@ -370,7 +375,7 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          _buildFinishButton(),
+          _buildFinishButton(state),
         ],
       );
     }
@@ -460,8 +465,16 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
         },
       );
 
-  Widget _buildFinishButton() => PrimaryButton(
-        label: Strings.finishCapture,
+  /// Finish, relabelled once the scan is complete.
+  ///
+  /// The word matters: while coverage is still missing, "Finish" is a guess
+  /// the user has to make. Once every side is captured the same button says
+  /// "Build model now", which is the app telling them to stop — the single
+  /// cheapest way to make a scan take less time (user request 2026-09-18).
+  Widget _buildFinishButton(CaptureUiState state) => PrimaryButton(
+        label: state.hasEnoughCoverage
+            ? Strings.buildNow
+            : Strings.finishCapture,
         onPressed: () {
           AppHaptics.tap();
           unawaited(ref.read(captureViewModelProvider.notifier).finish());
@@ -511,10 +524,19 @@ class _CaptureScreenState extends ConsumerState<CaptureScreen>
       case CapturePhase.detecting:
         return Strings.detectingHint;
       case CapturePhase.capturing:
-        // Apple's own milestone: the dial is full and every side is covered.
-        // Asking for another lap would waste the user's time and add nothing
-        // — the sides a single circle always misses are the top and the
-        // underside.
+        // The guidance narrows as the scan fills in, because each extra lap
+        // costs the user time and adds nothing. In order: keep circling →
+        // name the exact sides still missing → tell them to stop.
+        if (state.hasEnoughCoverage) {
+          return Strings.enoughCoverageHint;
+        }
+        if (state.isScanPassComplete && state.coverage.hasData) {
+          return Strings.stillToScanHint(
+            joinCoverageBandNames(state.coverage.missingBands),
+          );
+        }
+        // Apple's own milestone but no direction data to narrow it down with:
+        // the sides a single circle always misses are the top and underside.
         return state.isScanPassComplete
             ? Strings.passCompleteHint
             : Strings.capturingHint;

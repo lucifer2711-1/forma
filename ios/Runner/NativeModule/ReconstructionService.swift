@@ -45,7 +45,7 @@ final class ReconstructionService {
       try? FileManager.default.removeItem(at: outputURL)
       let session = try PhotogrammetrySession(
         input: imagesDirectory,
-        configuration: .init()
+        configuration: .forma
       )
       try session.process(
         requests: [PhotogrammetrySession.Request(modelFile: outputURL)]
@@ -68,6 +68,16 @@ final class ReconstructionService {
     switch output {
     case .requestProgress(_, fractionComplete: let fraction):
       events.emitProgress(fraction)
+    case .requestProgressInfo(_, let info):
+      // Apple's own stage and remaining-time estimate, surfaced instead of
+      // swallowed. "It takes too much time" is mostly a problem of not
+      // knowing how long is left, and this is the only honest ETA that
+      // exists — ours would be a guess (user request 2026-09-18: make the
+      // build feel fast).
+      events.emitReconstructionStage(
+        stage: Self.stageName(info.processingStage),
+        remainingSeconds: info.estimatedRemainingTime
+      )
     case .requestComplete(_, let result):
       if case .modelFile(let url) = result {
         onModelReady(scanId, url)
@@ -78,12 +88,69 @@ final class ReconstructionService {
         "request error: \(error.localizedDescription, privacy: .public)"
       )
       events.emitError(code: 2002, message: error.localizedDescription)
+    case .automaticDownsampling:
+      // Memory pressure made RealityKit shrink the input images. The model
+      // still builds, but coarser and slower — logged at error level so a
+      // mediocre result is not mistaken for a bad capture.
+      CameraDebugLogger.reconstruct.error(
+        "automatic downsampling — RealityKit reduced the input images under memory pressure"
+      )
+    case .stitchingIncomplete:
+      // RealityKit could not join every frame into one model, which is the
+      // signature of missing coverage rather than a build failure.
+      CameraDebugLogger.reconstruct.error(
+        "stitching incomplete — the scan is missing coverage"
+      )
     case .inputComplete, .processingComplete, .processingCancelled,
-      .automaticDownsampling, .stitchingIncomplete, .invalidSample,
-      .skippedSample, .requestProgressInfo:
+      .invalidSample, .skippedSample:
       break
     @unknown default:
       break
     }
+  }
+
+  /// Maps a processing stage to the short wire name the UI reads.
+  ///
+  /// Kept as a token rather than a sentence: the wording lives in Dart with
+  /// the rest of the UI copy (rules.md §2 — no user-facing English in Swift).
+  static func stageName(
+    _ stage: PhotogrammetrySession.Output.ProcessingStage
+  ) -> String {
+    switch stage {
+    case .preProcessing: return "preprocessing"
+    case .imageAlignment: return "aligning"
+    case .pointCloudGeneration: return "points"
+    case .meshGeneration: return "mesh"
+    case .textureMapping: return "texture"
+    case .optimization: return "optimizing"
+    @unknown default: return "working"
+    }
+  }
+}
+
+extension PhotogrammetrySession.Configuration {
+  /// Forma's reconstruction configuration — the fastest path iOS offers.
+  ///
+  /// `sampleOrdering: .sequential` is the real lever available on device.
+  /// Object Capture writes its frames in the order they were captured, walking
+  /// around the object, so declaring the samples ordered lets the session skip
+  /// the exhaustive pairwise matching it otherwise does for unordered input.
+  /// Apple's guideline is explicit: use it when the images are in a sequence.
+  /// (Revert to `.unordered` only if sequential ordering ever produces a
+  /// visibly worse stitch — it trades some robustness for speed.)
+  ///
+  /// There is no detail level to trade against here: **on iOS,
+  /// `Request.Detail` supports only `.reduced`** — `.preview` and `.full` are
+  /// macOS-only. So the geometry stage is already as fast as Apple allows and
+  /// the only remaining wins are the ordering above and telling the user how
+  /// long is left (see `requestProgressInfo`).
+  static var forma: PhotogrammetrySession.Configuration {
+    var configuration = PhotogrammetrySession.Configuration()
+    configuration.sampleOrdering = .sequential
+    // Masking stays on: it is what keeps the turntable and the room out of the
+    // model, and it is also one of the trained ML stages Apple runs for us.
+    configuration.isObjectMaskingEnabled = true
+    configuration.featureSensitivity = .normal
+    return configuration
   }
 }

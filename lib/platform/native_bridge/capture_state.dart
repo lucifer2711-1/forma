@@ -124,6 +124,25 @@ class ScanDirection {
       '${z.toStringAsFixed(2)}${isKept ? '' : ', live'})';
 }
 
+/// What RealityKit is doing right now, and how long it thinks is left.
+///
+/// Both values come from Apple (`requestProgressInfo`), never from us: the
+/// stage is the real pipeline step and the estimate is the session's own. The
+/// wire stages are tokens (`aligning`, `mesh`, …) so the wording stays in
+/// `Strings` with the rest of the UI copy.
+class ReconstructionStage {
+  /// Creates a stage update.
+  const ReconstructionStage({required this.stage, this.remainingSeconds});
+
+  /// Pipeline step: preprocessing, aligning, points, mesh, texture,
+  /// optimizing, or working when Apple reports a step we have no name for.
+  final String stage;
+
+  /// Apple's estimate of the seconds left, or null while it has none yet
+  /// (early in a build it returns nil).
+  final int? remainingSeconds;
+}
+
 /// A native-side error event.
 class BridgeError {
   /// Creates a bridge error.

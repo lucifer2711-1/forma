@@ -4,6 +4,7 @@ import 'package:forma/core/strings.dart';
 import 'package:forma/design_system/tokens/app_colors.dart';
 import 'package:forma/design_system/tokens/app_spacing.dart';
 import 'package:forma/design_system/tokens/app_typography.dart';
+import 'package:forma/features/capture/coverage/coverage_guidance.dart';
 import 'package:forma/features/capture/coverage/coverage_map.dart';
 import 'package:forma/features/capture/widgets/coverage_globe.dart';
 import 'package:forma/platform/native_bridge/capture_state.dart';
@@ -249,9 +250,7 @@ class CoveragePanel extends StatelessWidget {
           ? Strings.coverageCompleteHint
           : Strings.coverageAlmostHint;
     }
-    return Strings.coverageStillToScan(
-      _joinBands(missing.map(_bandName).toList()),
-    );
+    return Strings.coverageStillToScan(joinCoverageBandNames(missing));
   }
 
   String _semanticsSummary(int percent) =>
@@ -263,21 +262,6 @@ class CoveragePanel extends StatelessWidget {
         CoverageBand.bottom => Strings.coverageBandBottom,
       };
 
-  static String _bandName(CoverageBand band) => switch (band) {
-        CoverageBand.top => Strings.coverageNameTop,
-        CoverageBand.sides => Strings.coverageNameSides,
-        CoverageBand.bottom => Strings.coverageNameBottom,
-      };
-
-  static String _joinBands(List<String> bands) {
-    if (bands.length == 1) {
-      return bands.single;
-    }
-    if (bands.length == 2) {
-      return '${bands.first} and ${bands.last}';
-    }
-    return '${bands.take(bands.length - 1).join(', ')} and ${bands.last}';
-  }
 }
 
 /// A dot/swatch plus label for the globe's legend.

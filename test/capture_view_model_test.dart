@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -76,6 +77,93 @@ void main() {
     final saved = await repo.byId('scan-1');
     expect(saved, isNotNull);
     expect(saved!.modelPath, '/Scans/scan-1/Model.usdz');
+  });
+
+  test("Apple's stage and remaining-time estimate reach the UI", () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    await vm.start();
+    expect(vm.state.reconstructionStage, isNull);
+
+    await emitFormaEvent({
+      'type': 'reconstruction_stage',
+      'value': {'stage': 'aligning', 'remainingSeconds': 128},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.reconstructionStage, 'aligning');
+    expect(vm.state.reconstructionSecondsRemaining, 128);
+
+    // Apple returns nil for the estimate early in a build. A stale countdown
+    // must not survive that: the panel would be counting down to nothing.
+    await emitFormaEvent({
+      'type': 'reconstruction_stage',
+      'value': {'stage': 'mesh'},
+    });
+    await pumpEventQueue();
+
+    expect(vm.state.reconstructionStage, 'mesh');
+    expect(vm.state.reconstructionSecondsRemaining, isNull);
+  });
+
+  test('the scan is only "enough" when every band is really covered', () async {
+    final vm = container.read(captureViewModelProvider.notifier);
+
+    await vm.start();
+    await emitFormaEvent({'type': 'phase', 'value': 'capturing'});
+    await pumpEventQueue();
+
+    // Apple reports a completed pass, but the globe has seen nothing yet —
+    // the two signals disagree, and the honest answer is "not enough".
+    await emitFormaEvent({
+      'type': 'capture_progress',
+      'value': {'shots': 90, 'passComplete': true},
+    });
+    await pumpEventQueue();
+    expect(vm.state.isScanPassComplete, isTrue);
+    expect(vm.state.hasEnoughCoverage, isFalse);
+
+    // A lap's worth of sideways coverage still leaves the top and the
+    // underside, so the verdict stays "keep going".
+    for (var i = 0; i < 24; i++) {
+      final angle = i / 24 * 2 * math.pi;
+      await emitFormaEvent({
+        'type': 'scan_direction',
+        'value': {
+          'x': math.cos(angle),
+          'y': math.sin(angle),
+          'z': 0.0,
+          'kept': true,
+        },
+      });
+    }
+    await pumpEventQueue();
+    expect(vm.state.coverage.missingBands, isNotEmpty);
+    expect(vm.state.hasEnoughCoverage, isFalse);
+
+    // Only once the bands a lap cannot reach are covered too does the app tell
+    // the user they may stop. Rings at 0°, 25° and 50° from each pole fill the
+    // top and the underside within the globe's 32° sector tolerance.
+    for (final sign in [1.0, -1.0]) {
+      for (final polarDegrees in [0.0, 25.0, 50.0]) {
+        final polar = polarDegrees * math.pi / 180;
+        for (var i = 0; i < 8; i++) {
+          final azimuth = i / 8 * 2 * math.pi;
+          await emitFormaEvent({
+            'type': 'scan_direction',
+            'value': {
+              'x': math.sin(polar) * math.cos(azimuth),
+              'y': math.sin(polar) * math.sin(azimuth),
+              'z': sign * math.cos(polar),
+              'kept': true,
+            },
+          });
+        }
+      }
+    }
+    await pumpEventQueue();
+    expect(vm.state.coverage.missingBands, isEmpty);
+    expect(vm.state.hasEnoughCoverage, isTrue);
   });
 
   test('the torch follows the tap and reaches native', () async {

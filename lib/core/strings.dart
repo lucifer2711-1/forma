@@ -23,6 +23,44 @@ abstract final class Strings {
       'Point at the object and hold steady.';
   static const finishingHint = 'Finishing up';
   static const reconstructing = 'Reconstructing';
+
+  // Reconstruction: what Apple's pipeline is doing, and how long is left.
+
+  /// Stage names for Apple's `ProcessingStage` tokens (see
+  /// `ReconstructionService.stageName`). Naming the actual step is the honest
+  /// version of "please wait": the user learns the model is being aligned,
+  /// then meshed, then textured, instead of watching a number crawl.
+  static String reconstructionStageName(String stage) => switch (stage) {
+        'preprocessing' => reconstructionStagePreprocessing,
+        'aligning' => reconstructionStageAligning,
+        'points' => reconstructionStagePoints,
+        'mesh' => reconstructionStageMesh,
+        'texture' => reconstructionStageTexture,
+        'optimizing' => reconstructionStageOptimizing,
+        _ => reconstructionWorking,
+      };
+
+  static const reconstructionStagePreprocessing = 'Preparing your photos';
+  static const reconstructionStageAligning = 'Aligning the photos';
+  static const reconstructionStagePoints = 'Building the point cloud';
+  static const reconstructionStageMesh = 'Building the mesh';
+  static const reconstructionStageTexture = 'Mapping the textures';
+  static const reconstructionStageOptimizing = 'Optimising the model';
+  static const reconstructionWorking = 'Building your model';
+
+  /// RealityKit's own remaining-time estimate, said the way a person would.
+  ///
+  /// Rounded hard on purpose: "about 2 minutes" is useful, "1:47" is a
+  /// promise the session never made.
+  static String timeRemaining(int seconds) {
+    if (seconds < 45) {
+      return 'Almost done';
+    }
+    final minutes = (seconds / 60).round();
+    return minutes <= 1
+        ? 'About a minute left'
+        : 'About $minutes minutes left';
+  }
   static const modelReady = 'Model ready!';
   static const moveCloser = 'Move closer to the object';
   static const moveFarther = 'Move a bit farther away';
@@ -107,6 +145,21 @@ abstract final class Strings {
   static const passCompleteHint =
       'All sides captured. Now aim down at the object from above, then tap '
       'Finish.';
+
+  /// Names exactly what is left once Apple reports a completed pass, instead
+  /// of asking for another lap. This is the difference between a scan that
+  /// takes two minutes and one that takes five (user request 2026-09-18).
+  static String stillToScanHint(String bands) =>
+      'Nearly there — now capture $bands.';
+
+  /// The verdict: every side is captured and nothing more is worth waiting
+  /// for. Shown with the `buildNow` CTA so the user knows they may stop.
+  static const enoughCoverageHint =
+      'You have every side of the object. Build it now.';
+
+  /// The Finish CTA once the scan is complete, so stopping reads as the
+  /// obvious next step rather than a guess about whether to keep circling.
+  static const buildNow = 'Build model now';
   /// Label for the captured-geometry review (Apple's point cloud).
   static const geometryPillLabel = 'Geometry';
   static const backToCamera = 'Back to camera';
